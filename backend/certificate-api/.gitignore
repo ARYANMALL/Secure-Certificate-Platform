@@ -1,0 +1,19 @@
+# Java / Maven
+backend/certificate-api/target/
+
+# IDE
+.vscode/
+.idea/
+
+# Local cryptographic material
+backend/certificate-api/keys/*.p12
+backend/certificate-api/keys/*.pfx
+backend/certificate-api/keys/*.jks
+
+# Environment / secret files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log

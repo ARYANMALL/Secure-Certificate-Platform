@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: certificate-api
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/certificate_db
+    username: certificate_user
+    password: certificate_password
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+
+server:
+  port: 8080
+
+security:
+  jwt:
+    issuer: http://localhost:8080
+    secret: ${JWT_SECRET}
+    expiration-minutes: 15
+
+app:
+  bootstrap:
+    admin:
+      enabled: true
+      full-name: Platform Administrator
+      email: ${BOOTSTRAP_ADMIN_EMAIL}
+      password: ${BOOTSTRAP_ADMIN_PASSWORD}
+
+  certificate-signing:
+    keystore-path: ${CERTIFICATE_KEYSTORE_PATH:./keys/certificate-signing.p12}
+    keystore-password: ${CERTIFICATE_KEYSTORE_PASSWORD}
+    key-alias: certificate-signing
+    signature-algorithm: SHA256withRSA
+
+  verification:
+    base-url: http://localhost:3000/verify/
