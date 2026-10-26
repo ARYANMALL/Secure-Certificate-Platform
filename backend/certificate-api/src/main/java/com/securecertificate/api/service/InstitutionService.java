@@ -11,141 +11,129 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
 public class InstitutionService {
 
-    private final InstitutionRepository institutionRepository;
+        private final InstitutionRepository institutionRepository;
 
-    public InstitutionService(
-            InstitutionRepository institutionRepository) {
+        public InstitutionService(
+                        InstitutionRepository institutionRepository) {
 
-        this.institutionRepository = institutionRepository;
-    }
-
-    /*
-     * Create a new institution.
-     */
-    @Transactional
-    public InstitutionResponse create(
-            CreateInstitutionRequest request) {
-
-        String registrationNumber = request.registrationNumber().trim();
-
-        /*
-         * Check whether the registration number
-         * is already being used.
-         */
-        if (institutionRepository
-                .findByRegistrationNumber(
-                        registrationNumber)
-                .isPresent()) {
-
-            throw new DuplicateResourceException(
-                    "Institution with registration number '"
-                            + registrationNumber
-                            + "' already exists");
+                this.institutionRepository = institutionRepository;
         }
 
         /*
-         * Convert the request DTO into
-         * our JPA entity.
+         * Create institution application.
+         *
+         * This method is intentionally available to the
+         * public registration endpoint.
+         *
+         * New institutions remain PENDING until an ADMIN
+         * activates them.
          */
-        Institution institution = new Institution(
-                request.name().trim(),
-                registrationNumber,
-                request.email(),
-                request.address());
+        @Transactional
+        public InstitutionResponse create(
+                        CreateInstitutionRequest request) {
+
+                String registrationNumber = request.registrationNumber()
+                                .trim();
+
+                if (institutionRepository
+                                .findByRegistrationNumber(
+                                                registrationNumber)
+                                .isPresent()) {
+
+                        throw new DuplicateResourceException(
+                                        "Institution with registration number '"
+                                                        + registrationNumber
+                                                        + "' already exists");
+                }
+
+                String email = request.email()
+                                .trim()
+                                .toLowerCase(Locale.ROOT);
+
+                Institution institution = new Institution(
+                                request.name().trim(),
+                                registrationNumber,
+                                email,
+                                request.address().trim());
+
+                Institution savedInstitution = institutionRepository.save(
+                                institution);
+
+                return toResponse(savedInstitution);
+        }
 
         /*
-         * Save the entity to PostgreSQL.
+         * ADMIN: get all institutions.
          */
-        Institution savedInstitution = institutionRepository.save(
-                institution);
+        @PreAuthorize("hasRole('ADMIN')")
+        @Transactional(readOnly = true)
+        public List<InstitutionResponse> findAll() {
+
+                return institutionRepository
+                                .findAll()
+                                .stream()
+                                .map(this::toResponse)
+                                .toList();
+        }
 
         /*
-         * Convert entity into response DTO.
+         * ADMIN: get one institution.
          */
-        return toResponse(savedInstitution);
-    }
+        @PreAuthorize("hasRole('ADMIN')")
+        @Transactional(readOnly = true)
+        public InstitutionResponse findById(
+                        UUID id) {
 
-    /*
-     * Get all institutions.
-     */
-    @Transactional(readOnly = true)
-    public List<InstitutionResponse> findAll() {
+                Institution institution = institutionRepository
+                                .findById(id)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Institution not found: "
+                                                                + id));
 
-        return institutionRepository
-                .findAll()
-                .stream()
-                .map(this::toResponse)
-                .toList();
-    }
-
-    /*
-     * Get one institution by UUID.
-     */
-    @Transactional(readOnly = true)
-    public InstitutionResponse findById(
-            UUID id) {
-
-        Institution institution = institutionRepository
-                .findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Institution not found: "
-                                + id));
-
-        return toResponse(institution);
-    }
-
-    /*
-     * Only an ADMIN can activate
-     * an institution.
-     */
-    @PreAuthorize("hasRole('ADMIN')")
-    @Transactional
-    public InstitutionResponse activate(
-            UUID id) {
+                return toResponse(institution);
+        }
 
         /*
-         * Find the institution.
-         */
-        Institution institution = institutionRepository
-                .findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Institution not found: "
-                                + id));
-
-        /*
-         * Change status:
+         * ADMIN: activate institution.
          *
          * PENDING → ACTIVE
          */
-        institution.activate();
+        @PreAuthorize("hasRole('ADMIN')")
+        @Transactional
+        public InstitutionResponse activate(
+                        UUID id) {
+
+                Institution institution = institutionRepository
+                                .findById(id)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Institution not found: "
+                                                                + id));
+
+                institution.activate();
+
+                return toResponse(institution);
+        }
 
         /*
-         * Because the entity is inside a transaction,
-         * JPA will persist the change.
+         * Entity → response DTO.
          */
-        return toResponse(institution);
-    }
+        private InstitutionResponse toResponse(
+                        Institution institution) {
 
-    /*
-     * Converts the database entity into
-     * the API response DTO.
-     */
-    private InstitutionResponse toResponse(
-            Institution institution) {
-
-        return new InstitutionResponse(
-                institution.getId(),
-                institution.getName(),
-                institution.getRegistrationNumber(),
-                institution.getEmail(),
-                institution.getAddress(),
-                institution.getStatus(),
-                institution.getCreatedAt(),
-                institution.getUpdatedAt());
-    }
+                return new InstitutionResponse(
+                                institution.getId(),
+                                institution.getName(),
+                                institution.getRegistrationNumber(),
+                                institution.getEmail(),
+                                institution.getAddress(),
+                                institution.getStatus(),
+                                institution.getCreatedAt(),
+                                institution.getUpdatedAt());
+        }
 }

@@ -1,8 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const API = "http://localhost:8080";
 
 function RegisterPage({ onBack }) {
+
+  const [institutions, setInstitutions] =
+    useState([]);
+
+  const [institutionId, setInstitutionId] =
+    useState("");
 
   const [fullName, setFullName] =
     useState("");
@@ -16,14 +22,72 @@ function RegisterPage({ onBack }) {
   const [confirmPassword, setConfirmPassword] =
     useState("");
 
+  const [loadingInstitutions, setLoadingInstitutions] =
+    useState(true);
+
+  const [loading, setLoading] =
+    useState(false);
+
   const [error, setError] =
     useState("");
 
   const [success, setSuccess] =
     useState("");
 
-  const [loading, setLoading] =
-    useState(false);
+  useEffect(() => {
+
+    async function loadInstitutions() {
+
+      try {
+
+        const response =
+          await fetch(
+            `${API}/api/public/institutions`
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+
+          throw new Error(
+            data.message ||
+            "Unable to load institutions."
+          );
+        }
+
+        const activeInstitutions =
+          Array.isArray(data)
+            ? data
+            : [];
+
+        setInstitutions(
+          activeInstitutions
+        );
+
+        if (
+          activeInstitutions.length > 0
+        ) {
+
+          setInstitutionId(
+            activeInstitutions[0].id
+          );
+        }
+
+      } catch (error) {
+
+        setError(error.message);
+
+      } finally {
+
+        setLoadingInstitutions(false);
+
+      }
+    }
+
+    loadInstitutions();
+
+  }, []);
 
   async function register(event) {
 
@@ -31,6 +95,15 @@ function RegisterPage({ onBack }) {
 
     setError("");
     setSuccess("");
+
+    if (!institutionId) {
+
+      setError(
+        "Please select an institution."
+      );
+
+      return;
+    }
 
     if (password.length < 12) {
 
@@ -75,9 +148,15 @@ function RegisterPage({ onBack }) {
             },
 
             body: JSON.stringify({
-              fullName: fullName.trim(),
-              email: email.trim(),
-              password
+              fullName:
+                fullName.trim(),
+
+              email:
+                email.trim(),
+
+              password,
+
+              institutionId
             })
           }
         );
@@ -98,14 +177,36 @@ function RegisterPage({ onBack }) {
         );
       }
 
-      setSuccess(
-        "Account created successfully. You can now sign in."
+      /*
+       * The backend returns an AuthResponse,
+       * so registration also logs the user in.
+       */
+      localStorage.setItem(
+        "token",
+        data.accessToken
       );
 
-      setFullName("");
-      setEmail("");
-      setPassword("");
-      setConfirmPassword("");
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          userId: data.userId,
+          fullName: data.fullName,
+          email: data.email,
+          role: data.role
+        })
+      );
+
+      setSuccess(
+        "Account created successfully."
+      );
+
+      /*
+       * Give the browser a moment to show
+       * the success message, then open dashboard.
+       */
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 700);
 
     } catch (error) {
 
@@ -128,6 +229,7 @@ function RegisterPage({ onBack }) {
         </div>
 
         <div>
+
           <strong>
             SecureCert
           </strong>
@@ -135,6 +237,7 @@ function RegisterPage({ onBack }) {
           <span>
             Digital Certificate Platform
           </span>
+
         </div>
 
       </div>
@@ -150,13 +253,11 @@ function RegisterPage({ onBack }) {
         </h1>
 
         <p>
-          Register yourself to access
-          your digital certificates.
+          Register yourself and start
+          managing your digital credentials.
         </p>
 
-        <form
-          onSubmit={register}
-        >
+        <form onSubmit={register}>
 
           <label>
             Full name
@@ -171,6 +272,7 @@ function RegisterPage({ onBack }) {
                 event.target.value
               )
             }
+            maxLength={150}
             required
           />
 
@@ -187,8 +289,55 @@ function RegisterPage({ onBack }) {
                 event.target.value
               )
             }
+            maxLength={320}
             required
           />
+
+          <label>
+            Institution
+          </label>
+
+          {loadingInstitutions ? (
+
+            <div className="loading-field">
+              Loading institutions...
+            </div>
+
+          ) : institutions.length === 0 ? (
+
+            <div className="error">
+              No active institutions are
+              currently available for registration.
+            </div>
+
+          ) : (
+
+            <select
+              value={institutionId}
+              onChange={(event) =>
+                setInstitutionId(
+                  event.target.value
+                )
+              }
+              required
+            >
+
+              {institutions.map(
+                (institution) => (
+
+                  <option
+                    key={institution.id}
+                    value={institution.id}
+                  >
+                    {institution.name}
+                  </option>
+
+                )
+              )}
+
+            </select>
+
+          )}
 
           <label>
             Password
@@ -239,8 +388,13 @@ function RegisterPage({ onBack }) {
           )}
 
           <button
+            type="submit"
             className="primary"
-            disabled={loading}
+            disabled={
+              loading ||
+              loadingInstitutions ||
+              institutions.length === 0
+            }
           >
             {loading
               ? "Creating account..."
@@ -259,7 +413,7 @@ function RegisterPage({ onBack }) {
       </div>
 
       <div className="login-footer">
-        Secure registration · JWT protected platform
+        Secure registration · Institution verified
       </div>
 
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 import RegisterPage from "./RegisterPage";
+import InstitutionRegisterPage from "./InstitutionRegisterPage";
 
 const API = "http://localhost:8080";
 
@@ -8,7 +9,7 @@ function App() {
   const path = window.location.pathname;
 
   // IMPORTANT:
-  // Hooks must always run before any conditional return.
+  // Hooks must always run before conditional returns.
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(
@@ -24,11 +25,24 @@ function App() {
   );
 
   /*
-   * PUBLIC REGISTRATION
+   * PUBLIC STUDENT REGISTRATION
    */
   if (path === "/register") {
     return (
       <RegisterPage
+        onBack={() => {
+          window.location.href = "/";
+        }}
+      />
+    );
+  }
+
+  /*
+   * PUBLIC INSTITUTION REGISTRATION
+   */
+  if (path === "/register/institution") {
+    return (
+      <InstitutionRegisterPage
         onBack={() => {
           window.location.href = "/";
         }}
@@ -54,6 +68,9 @@ function App() {
     );
   }
 
+  /*
+   * PUBLIC VERIFICATION PAGE
+   */
   if (path === "/verify") {
     return (
       <VerifyPage
@@ -136,9 +153,11 @@ function LoginPage({ onLogin }) {
         `${API}/api/auth/login`,
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json"
           },
+
           body: JSON.stringify({
             email: email.trim(),
             password
@@ -266,6 +285,16 @@ function LoginPage({ onLogin }) {
         <button
           className="text-button"
           onClick={() =>
+            window.location.href =
+              "/register/institution"
+          }
+        >
+          Register an institution →
+        </button>
+
+        <button
+          className="text-button"
+          onClick={() =>
             window.location.href = "/verify"
           }
         >
@@ -296,20 +325,19 @@ function Dashboard({
 
   function pageTitle() {
 
-    switch (page) {
-
-      case "admin":
-        return "Institution Management";
-
-      case "issuer":
-        return "Issue Certificate";
-
-      case "student":
-        return "My Certificates";
-
-      default:
-        return "Overview";
+    if (page === "admin") {
+      return "Institution Management";
     }
+
+    if (page === "issuer") {
+      return "Issue Certificate";
+    }
+
+    if (page === "student") {
+      return "My Certificates";
+    }
+
+    return "Overview";
   }
 
   return (
@@ -483,6 +511,7 @@ function NavButton({
    ========================================================= */
 
 function Overview({ user }) {
+
   return (
     <div className="content">
 
@@ -637,6 +666,7 @@ function AdminPage({ token }) {
           await response.json();
 
         if (!response.ok) {
+
           throw new Error(
             data.message ||
             "Unable to load institutions."
@@ -675,6 +705,7 @@ function AdminPage({ token }) {
           `${API}/api/institutions/${id}/activate`,
           {
             method: "PATCH",
+
             headers: {
               Authorization:
                 `Bearer ${token}`
@@ -686,6 +717,7 @@ function AdminPage({ token }) {
         await response.json();
 
       if (!response.ok) {
+
         throw new Error(
           data.message ||
           "Unable to activate institution."
@@ -755,6 +787,12 @@ function AdminPage({ token }) {
 
           <div className="empty">
             Loading institutions...
+          </div>
+
+        ) : institutions.length === 0 ? (
+
+          <div className="empty">
+            No institutions found.
           </div>
 
         ) : (
@@ -915,6 +953,7 @@ function IssuerPage({ token }) {
           await response.json();
 
         if (!response.ok) {
+
           throw new Error(
             data.message ||
             "Unable to load students."
@@ -961,6 +1000,7 @@ function IssuerPage({ token }) {
           await response.json();
 
         if (!response.ok) {
+
           throw new Error(
             data.message ||
             "Unable to load certificates."

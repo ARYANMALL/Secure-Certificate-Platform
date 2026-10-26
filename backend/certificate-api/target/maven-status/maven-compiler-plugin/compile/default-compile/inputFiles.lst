@@ -13,6 +13,7 @@ C:\Users\ary67\OneDrive\Secure Certificate Platform\backend\certificate-api\src\
 C:\Users\ary67\OneDrive\Secure Certificate Platform\backend\certificate-api\src\main\java\com\securecertificate\api\controller\InstitutionController.java
 C:\Users\ary67\OneDrive\Secure Certificate Platform\backend\certificate-api\src\main\java\com\securecertificate\api\controller\IssuerStudentController.java
 C:\Users\ary67\OneDrive\Secure Certificate Platform\backend\certificate-api\src\main\java\com\securecertificate\api\controller\PublicCertificateController.java
+C:\Users\ary67\OneDrive\Secure Certificate Platform\backend\certificate-api\src\main\java\com\securecertificate\api\controller\PublicInstitutionController.java
 C:\Users\ary67\OneDrive\Secure Certificate Platform\backend\certificate-api\src\main\java\com\securecertificate\api\controller\StudentCertificateController.java
 C:\Users\ary67\OneDrive\Secure Certificate Platform\backend\certificate-api\src\main\java\com\securecertificate\api\controller\UserController.java
 C:\Users\ary67\OneDrive\Secure Certificate Platform\backend\certificate-api\src\main\java\com\securecertificate\api\dto\admin\CreateIssuerRequest.java

@@ -3,6 +3,7 @@ com\securecertificate\api\entity\Certificate.class
 com\securecertificate\api\repository\UserRepository.class
 com\securecertificate\api\dto\admin\CreateIssuerRequest.class
 com\securecertificate\api\config\CorsConfig.class
+com\securecertificate\api\controller\PublicInstitutionController$InstitutionOption.class
 com\securecertificate\api\exception\GlobalExceptionHandler.class
 com\securecertificate\api\controller\HealthController.class
 com\securecertificate\api\security\CustomUserDetailsService.class
@@ -11,6 +12,7 @@ com\securecertificate\api\entity\InstitutionStatus.class
 com\securecertificate\api\config\CertificateSigningProperties.class
 com\securecertificate\api\controller\IssuerStudentController.class
 com\securecertificate\api\security\SecurityConfig.class
+com\securecertificate\api\controller\PublicInstitutionController.class
 com\securecertificate\api\dto\auth\UserProfileResponse.class
 com\securecertificate\api\config\CertificateSigningConfig.class
 com\securecertificate\api\dto\certificate\CreateCertificateRequest.class
