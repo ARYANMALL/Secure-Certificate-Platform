@@ -3,29 +3,34 @@ spring:
     name: certificate-api
 
   datasource:
-    url: jdbc:postgresql://localhost:5433/certificate_db
-    username: certificate_user
-    password: certificate_password
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/certificate_db}
+    username: ${SPRING_DATASOURCE_USERNAME:certificate_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:certificate_password}
 
   jpa:
     hibernate:
       ddl-auto: none
     open-in-view: false
 
+  flyway:
+    enabled: true
+
 server:
-  port: 8080
+  address: 0.0.0.0
+  port: ${PORT:8080}
 
 security:
   jwt:
-    issuer: http://localhost:8080
+    issuer: ${SECURITY_JWT_ISSUER:http://localhost:8080}
     secret: ${JWT_SECRET}
     expiration-minutes: 15
 
 app:
+
   bootstrap:
     admin:
-      enabled: true
-      full-name: Platform Administrator
+      enabled: ${BOOTSTRAP_ADMIN_ENABLED:true}
+      full-name: ${BOOTSTRAP_ADMIN_FULL_NAME:Platform Administrator}
       email: ${BOOTSTRAP_ADMIN_EMAIL}
       password: ${BOOTSTRAP_ADMIN_PASSWORD}
 
@@ -36,4 +41,7 @@ app:
     signature-algorithm: SHA256withRSA
 
   verification:
-    base-url: http://localhost:3000/verify/
+    base-url: ${APP_VERIFICATION_BASE_URL:http://localhost:3000/verify/}
+
+  cors:
+    allowed-origin: ${APP_CORS_ALLOWED_ORIGIN:http://localhost:3000}

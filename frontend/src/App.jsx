@@ -5,7 +5,9 @@ import RegisterPage from "./RegisterPage";
 import InstitutionRegisterPage from "./InstitutionRegisterPage";
 import IssuerIssueCertificate from "./IssuerIssueCertificate";
 
-const API = "http://localhost:8080";
+const API =
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:8080";
 
 /* =========================================================
    API HELPERS

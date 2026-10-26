@@ -1,51 +1,59 @@
 package com.securecertificate.api.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
 public class CorsConfig {
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+        @Value("${app.cors.allowed-origin:http://localhost:3000}")
+        private String allowedOrigins;
 
-        CorsConfiguration configuration = new CorsConfiguration();
+        @Bean
+        public CorsConfigurationSource corsConfigurationSource() {
 
-        configuration.setAllowedOrigins(
-                List.of(
-                        "http://localhost:3000"));
+                CorsConfiguration configuration = new CorsConfiguration();
 
-        configuration.setAllowedMethods(
-                List.of(
-                        "GET",
-                        "POST",
-                        "PUT",
-                        "PATCH",
-                        "DELETE",
-                        "OPTIONS"));
+                configuration.setAllowedOrigins(
+                                Arrays.stream(
+                                                allowedOrigins.split(","))
+                                                .map(String::trim)
+                                                .filter(origin -> !origin.isBlank())
+                                                .toList());
 
-        configuration.setAllowedHeaders(
-                List.of(
-                        "Authorization",
-                        "Content-Type"));
+                configuration.setAllowedMethods(
+                                List.of(
+                                                "GET",
+                                                "POST",
+                                                "PUT",
+                                                "PATCH",
+                                                "DELETE",
+                                                "OPTIONS"));
 
-        configuration.setExposedHeaders(
-                List.of(
-                        "Content-Disposition"));
+                configuration.setAllowedHeaders(
+                                List.of(
+                                                "Authorization",
+                                                "Content-Type"));
 
-        configuration.setAllowCredentials(false);
+                configuration.setExposedHeaders(
+                                List.of(
+                                                "Content-Disposition"));
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+                configuration.setAllowCredentials(false);
 
-        source.registerCorsConfiguration(
-                "/**",
-                configuration);
+                UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 
-        return source;
-    }
+                source.registerCorsConfiguration(
+                                "/**",
+                                configuration);
+
+                return source;
+        }
 }
