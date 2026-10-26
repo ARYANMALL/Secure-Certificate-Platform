@@ -1,15 +1,85 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+
 import RegisterPage from "./RegisterPage";
 import InstitutionRegisterPage from "./InstitutionRegisterPage";
+import IssuerIssueCertificate from "./IssuerIssueCertificate";
 
 const API = "http://localhost:8080";
+
+/* =========================================================
+   API HELPERS
+   ========================================================= */
+
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, options);
+
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`;
+
+    try {
+      const errorData = await response.json();
+
+      message =
+        errorData.message ||
+        errorData.error ||
+        message;
+    } catch {
+      // Response did not contain JSON.
+    }
+
+    throw new Error(message);
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+function authHeaders(token) {
+  return {
+    Authorization: `Bearer ${token}`
+  };
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+
+  document.body.appendChild(link);
+
+  link.click();
+
+  link.remove();
+
+  URL.revokeObjectURL(url);
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return new Date(value).toLocaleDateString();
+  } catch {
+    return value;
+  }
+}
+
+/* =========================================================
+   APP
+   ========================================================= */
 
 function App() {
   const path = window.location.pathname;
 
-  // IMPORTANT:
-  // Hooks must always run before conditional returns.
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(
@@ -24,9 +94,10 @@ function App() {
     localStorage.getItem("token")
   );
 
-  /*
-   * PUBLIC STUDENT REGISTRATION
-   */
+  /* =======================================================
+     PUBLIC STUDENT REGISTRATION
+     ======================================================= */
+
   if (path === "/register") {
     return (
       <RegisterPage
@@ -37,9 +108,10 @@ function App() {
     );
   }
 
-  /*
-   * PUBLIC INSTITUTION REGISTRATION
-   */
+  /* =======================================================
+     PUBLIC INSTITUTION REGISTRATION
+     ======================================================= */
+
   if (path === "/register/institution") {
     return (
       <InstitutionRegisterPage
@@ -50,9 +122,21 @@ function App() {
     );
   }
 
-  /*
-   * PUBLIC CERTIFICATE VERIFICATION
-   */
+  /* =======================================================
+     PUBLIC CERTIFICATE VERIFICATION
+     ======================================================= */
+
+  if (path === "/verify") {
+    return (
+      <VerifyPage
+        initialNumber=""
+        onBack={() => {
+          window.location.href = "/";
+        }}
+      />
+    );
+  }
+
   if (path.startsWith("/verify/")) {
     const certificateNumber = decodeURIComponent(
       path.substring("/verify/".length)
@@ -68,23 +152,10 @@ function App() {
     );
   }
 
-  /*
-   * PUBLIC VERIFICATION PAGE
-   */
-  if (path === "/verify") {
-    return (
-      <VerifyPage
-        initialNumber=""
-        onBack={() => {
-          window.location.href = "/";
-        }}
-      />
-    );
-  }
+  /* =======================================================
+     LOGIN
+     ======================================================= */
 
-  /*
-   * LOGIN
-   */
   if (!token || !user) {
     return (
       <LoginPage
@@ -113,9 +184,10 @@ function App() {
     );
   }
 
-  /*
-   * AUTHENTICATED APPLICATION
-   */
+  /* =======================================================
+     AUTHENTICATED APPLICATION
+     ======================================================= */
+
   return (
     <Dashboard
       user={user}
@@ -132,7 +204,7 @@ function App() {
 }
 
 /* =========================================================
-   LOGIN
+   LOGIN PAGE
    ========================================================= */
 
 function LoginPage({ onLogin }) {
@@ -149,7 +221,7 @@ function LoginPage({ onLogin }) {
     setLoading(true);
 
     try {
-      const response = await fetch(
+      const data = await requestJson(
         `${API}/api/auth/login`,
         {
           method: "POST",
@@ -164,21 +236,6 @@ function LoginPage({ onLogin }) {
           })
         }
       );
-
-      let data = {};
-
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-          "Invalid email or password."
-        );
-      }
 
       onLogin(data);
 
@@ -233,8 +290,8 @@ function LoginPage({ onLogin }) {
 
           <input
             type="email"
-            placeholder="you@example.com"
             value={email}
+            placeholder="you@example.com"
             onChange={(event) =>
               setEmail(event.target.value)
             }
@@ -247,8 +304,8 @@ function LoginPage({ onLogin }) {
 
           <input
             type="password"
-            placeholder="Your password"
             value={password}
+            placeholder="Your password"
             onChange={(event) =>
               setPassword(event.target.value)
             }
@@ -320,28 +377,47 @@ function Dashboard({
   token,
   onLogout
 }) {
-  const [page, setPage] =
-    useState("overview");
+  const [page, setPage] = useState(
+    user.role === "STUDENT"
+      ? "student"
+      : "overview"
+  );
 
-  function pageTitle() {
+  function getPageTitle() {
+    switch (page) {
 
-    if (page === "admin") {
-      return "Institution Management";
+      case "student":
+        return "My Certificates";
+
+      case "student-request":
+        return "Request Certificate";
+
+      case "issuer-requests":
+        return "Certificate Requests";
+
+      case "issuer-issue":
+        return "Issue Certificate";
+
+      case "issuer-certificates":
+        return "Issued Certificates";
+
+      case "admin-institutions":
+        return "Institution Management";
+
+      case "admin-approvals":
+        return "Certificate Approvals";
+
+      default:
+        return "Overview";
     }
-
-    if (page === "issuer") {
-      return "Issue Certificate";
-    }
-
-    if (page === "student") {
-      return "My Certificates";
-    }
-
-    return "Overview";
   }
 
   return (
     <div className="layout">
+
+      {/* ===================================================
+          SIDEBAR
+          =================================================== */}
 
       <aside className="sidebar">
 
@@ -363,6 +439,8 @@ function Dashboard({
 
         <nav>
 
+          {/* OVERVIEW */}
+
           <NavButton
             active={page === "overview"}
             onClick={() =>
@@ -372,40 +450,104 @@ function Dashboard({
             Overview
           </NavButton>
 
-          {user.role === "ADMIN" && (
-            <NavButton
-              active={page === "admin"}
-              onClick={() =>
-                setPage("admin")
-              }
-            >
-              Institutions
-            </NavButton>
-          )}
-
-          {user.role === "ISSUER" && (
-            <NavButton
-              active={page === "issuer"}
-              onClick={() =>
-                setPage("issuer")
-              }
-            >
-              Issue Certificate
-            </NavButton>
-          )}
+          {/* STUDENT */}
 
           {user.role === "STUDENT" && (
-            <NavButton
-              active={page === "student"}
-              onClick={() =>
-                setPage("student")
-              }
-            >
-              My Certificates
-            </NavButton>
+            <>
+              <NavButton
+                active={
+                  page === "student-request"
+                }
+                onClick={() =>
+                  setPage("student-request")
+                }
+              >
+                Request Certificate
+              </NavButton>
+
+              <NavButton
+                active={
+                  page === "student"
+                }
+                onClick={() =>
+                  setPage("student")
+                }
+              >
+                My Certificates
+              </NavButton>
+            </>
+          )}
+
+          {/* CENTRAL ISSUER */}
+
+          {user.role === "ISSUER" && (
+            <>
+              <NavButton
+                active={
+                  page === "issuer-requests"
+                }
+                onClick={() =>
+                  setPage("issuer-requests")
+                }
+              >
+                Certificate Requests
+              </NavButton>
+
+              <NavButton
+                active={
+                  page === "issuer-issue"
+                }
+                onClick={() =>
+                  setPage("issuer-issue")
+                }
+              >
+                Issue Certificate
+              </NavButton>
+
+              <NavButton
+                active={
+                  page === "issuer-certificates"
+                }
+                onClick={() =>
+                  setPage("issuer-certificates")
+                }
+              >
+                Issued Certificates
+              </NavButton>
+            </>
+          )}
+
+          {/* ADMIN */}
+
+          {user.role === "ADMIN" && (
+            <>
+              <NavButton
+                active={
+                  page === "admin-institutions"
+                }
+                onClick={() =>
+                  setPage("admin-institutions")
+                }
+              >
+                Institutions
+              </NavButton>
+
+              <NavButton
+                active={
+                  page === "admin-approvals"
+                }
+                onClick={() =>
+                  setPage("admin-approvals")
+                }
+              >
+                Certificate Approvals
+              </NavButton>
+            </>
           )}
 
         </nav>
+
+        {/* SIDEBAR BOTTOM */}
 
         <div className="sidebar-bottom">
 
@@ -440,6 +582,10 @@ function Dashboard({
 
       </aside>
 
+      {/* ===================================================
+          MAIN
+          =================================================== */}
+
       <main className="main">
 
         <header className="header">
@@ -451,7 +597,7 @@ function Dashboard({
             </span>
 
             <h1>
-              {pageTitle()}
+              {getPageTitle()}
             </h1>
 
           </div>
@@ -462,21 +608,71 @@ function Dashboard({
 
         </header>
 
+        {/* OVERVIEW */}
+
         {page === "overview" && (
-          <Overview user={user} />
+          <Overview
+            user={user}
+            onNavigate={setPage}
+          />
         )}
 
-        {page === "admin" && (
-          <AdminPage token={token} />
+        {/* STUDENT REQUEST */}
+
+        {page === "student-request" && (
+          <StudentRequestPage
+            token={token}
+            onSubmitted={() =>
+              setPage("student")
+            }
+          />
         )}
 
-        {page === "issuer" && (
-          <IssuerPage token={token} />
-        )}
+        {/* STUDENT */}
 
         {page === "student" && (
           <StudentPage
             user={user}
+            token={token}
+          />
+        )}
+
+        {/* ISSUER REQUESTS */}
+
+        {page === "issuer-requests" && (
+          <IssuerRequests
+            token={token}
+          />
+        )}
+
+        {/* ISSUER ISSUE */}
+
+        {page === "issuer-issue" && (
+          <IssuerIssueCertificate
+            token={token}
+          />
+        )}
+
+        {/* ISSUER CERTIFICATES */}
+
+        {page === "issuer-certificates" && (
+          <IssuerCertificates
+            token={token}
+          />
+        )}
+
+        {/* ADMIN INSTITUTIONS */}
+
+        {page === "admin-institutions" && (
+          <AdminInstitutions
+            token={token}
+          />
+        )}
+
+        {/* ADMIN APPROVALS */}
+
+        {page === "admin-approvals" && (
+          <AdminApprovals
             token={token}
           />
         )}
@@ -486,6 +682,10 @@ function Dashboard({
     </div>
   );
 }
+
+/* =========================================================
+   NAVIGATION BUTTON
+   ========================================================= */
 
 function NavButton({
   active,
@@ -510,8 +710,10 @@ function NavButton({
    OVERVIEW
    ========================================================= */
 
-function Overview({ user }) {
-
+function Overview({
+  user,
+  onNavigate
+}) {
   return (
     <div className="content">
 
@@ -557,32 +759,165 @@ function Overview({ user }) {
         />
 
         <Stat
-          title="Signatures"
-          value="RSA"
+          title="Security"
+          value="SHA-256 + RSA"
         />
 
       </div>
 
+      {/* STUDENT */}
+
+      {user.role === "STUDENT" && (
+
+        <section className="card">
+
+          <span className="eyebrow">
+            STUDENT ACTION
+          </span>
+
+          <h3>
+            Need a certificate?
+          </h3>
+
+          <p>
+            Submit a certificate request
+            to your institution. The central
+            issuer will review your request
+            before administrator approval.
+          </p>
+
+          <button
+            className="primary"
+            onClick={() =>
+              onNavigate(
+                "student-request"
+              )
+            }
+          >
+            Apply for Certificate
+          </button>
+
+        </section>
+
+      )}
+
+      {/* ISSUER */}
+
+      {user.role === "ISSUER" && (
+
+        <section className="card">
+
+          <span className="eyebrow">
+            CENTRAL ISSUER
+          </span>
+
+          <h3>
+            Manage certificates
+          </h3>
+
+          <p>
+            Review certificate requests from
+            every institution or manually
+            prepare a certificate for any
+            active student.
+          </p>
+
+          <div className="button-row">
+
+            <button
+              className="primary"
+              onClick={() =>
+                onNavigate(
+                  "issuer-requests"
+                )
+              }
+            >
+              View Requests
+            </button>
+
+            <button
+              className="secondary"
+              onClick={() =>
+                onNavigate(
+                  "issuer-issue"
+                )
+              }
+            >
+              Issue Certificate
+            </button>
+
+          </div>
+
+        </section>
+
+      )}
+
+      {/* ADMIN */}
+
+      {user.role === "ADMIN" && (
+
+        <section className="card">
+
+          <span className="eyebrow">
+            ADMINISTRATION
+          </span>
+
+          <h3>
+            Manage the platform
+          </h3>
+
+          <p>
+            Manage institutions and provide
+            final approval for certificates.
+          </p>
+
+          <button
+            className="primary"
+            onClick={() =>
+              onNavigate(
+                "admin-approvals"
+              )
+            }
+          >
+            Review Approvals
+          </button>
+
+        </section>
+
+      )}
+
       <section className="card">
 
         <span className="eyebrow">
-          PLATFORM SECURITY
+          TRUST ARCHITECTURE
         </span>
 
         <h3>
-          Certificate trust architecture
+          Certificate security
         </h3>
 
         <p>
-          Certificates are protected using
-          SHA-256 integrity hashing and
+          Approved certificates are protected
+          with SHA-256 integrity hashing and
           RSA digital signatures.
         </p>
 
         <div className="flow">
 
           <span>
-            Certificate
+            Student
+          </span>
+
+          <b>→</b>
+
+          <span>
+            Issuer
+          </span>
+
+          <b>→</b>
+
+          <span>
+            Admin
           </span>
 
           <b>→</b>
@@ -594,13 +929,7 @@ function Overview({ user }) {
           <b>→</b>
 
           <span>
-            RSA Signature
-          </span>
-
-          <b>→</b>
-
-          <span>
-            Verification
+            RSA
           </span>
 
         </div>
@@ -631,10 +960,1280 @@ function Stat({
 }
 
 /* =========================================================
-   ADMIN
+   STUDENT REQUEST PAGE
    ========================================================= */
 
-function AdminPage({ token }) {
+function StudentRequestPage({
+  token,
+  onSubmitted
+}) {
+  const [courseName, setCourseName] =
+    useState("");
+
+  const [description, setDescription] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [message, setMessage] =
+    useState("");
+
+  async function submitRequest(event) {
+
+    event.preventDefault();
+
+    setError("");
+    setMessage("");
+    setLoading(true);
+
+    try {
+
+      await requestJson(
+        `${API}/api/certificate-requests`,
+        {
+          method: "POST",
+
+          headers: {
+            ...authHeaders(token),
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            courseName:
+              courseName.trim(),
+
+            description:
+              description.trim()
+          })
+        }
+      );
+
+      setMessage(
+        "Certificate request submitted successfully."
+      );
+
+      setCourseName("");
+      setDescription("");
+
+      setTimeout(() => {
+        onSubmitted();
+      }, 800);
+
+    } catch (error) {
+
+      setError(error.message);
+
+    } finally {
+
+      setLoading(false);
+
+    }
+  }
+
+  return (
+    <div className="content">
+
+      <section className="card">
+
+        <span className="eyebrow">
+          CERTIFICATE REQUEST
+        </span>
+
+        <h3>
+          Apply for a certificate
+        </h3>
+
+        <p>
+          Submit your request to your
+          institution. An authorized issuer
+          will review it before administrator
+          approval.
+        </p>
+
+        <form
+          className="form"
+          onSubmit={submitRequest}
+        >
+
+          <label>
+            Course / Program
+          </label>
+
+          <input
+            type="text"
+            value={courseName}
+            placeholder="Java Full Stack Development"
+            onChange={(event) =>
+              setCourseName(
+                event.target.value
+              )
+            }
+            maxLength={200}
+            required
+          />
+
+          <label>
+            Description
+          </label>
+
+          <textarea
+            rows="6"
+            value={description}
+            placeholder="Describe the course or achievement."
+            onChange={(event) =>
+              setDescription(
+                event.target.value
+              )
+            }
+            maxLength={2000}
+          />
+
+          {error && (
+            <div className="error">
+              {error}
+            </div>
+          )}
+
+          {message && (
+            <div className="success">
+              {message}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="primary"
+            disabled={loading}
+          >
+            {loading
+              ? "Submitting request..."
+              : "Submit Certificate Request"}
+          </button>
+
+        </form>
+
+      </section>
+
+      <section className="card">
+
+        <span className="eyebrow">
+          APPROVAL PROCESS
+        </span>
+
+        <div className="flow">
+
+          <span>
+            Student
+          </span>
+
+          <b>→</b>
+
+          <span>
+            Central Issuer
+          </span>
+
+          <b>→</b>
+
+          <span>
+            Admin
+          </span>
+
+          <b>→</b>
+
+          <span>
+            Certificate
+          </span>
+
+        </div>
+
+      </section>
+
+    </div>
+  );
+}
+
+/* =========================================================
+   STUDENT PAGE
+   ========================================================= */
+
+function StudentPage({
+  user,
+  token
+}) {
+  const [certificates, setCertificates] =
+    useState([]);
+
+  const [requests, setRequests] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  useEffect(() => {
+
+    let cancelled = false;
+
+    async function load() {
+
+      try {
+
+        const [
+          certificateResponse,
+          requestResponse
+        ] = await Promise.all([
+
+          fetch(
+            `${API}/api/student/certificates`,
+            {
+              headers:
+                authHeaders(token)
+            }
+          ),
+
+          fetch(
+            `${API}/api/certificate-requests/my`,
+            {
+              headers:
+                authHeaders(token)
+            }
+          )
+
+        ]);
+
+        const certificateData =
+          await certificateResponse.json();
+
+        const requestData =
+          await requestResponse.json();
+
+        if (!certificateResponse.ok) {
+
+          throw new Error(
+            certificateData.message ||
+            "Unable to load certificates."
+          );
+        }
+
+        if (!requestResponse.ok) {
+
+          throw new Error(
+            requestData.message ||
+            "Unable to load requests."
+          );
+        }
+
+        if (!cancelled) {
+
+          setCertificates(
+            Array.isArray(certificateData)
+              ? certificateData
+              : []
+          );
+
+          setRequests(
+            Array.isArray(requestData)
+              ? requestData
+              : []
+          );
+
+        }
+
+      } catch (error) {
+
+        if (!cancelled) {
+          setError(error.message);
+        }
+
+      } finally {
+
+        if (!cancelled) {
+          setLoading(false);
+        }
+
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+
+  }, [token]);
+
+  async function downloadPdf(
+    id,
+    certificateNumber
+  ) {
+
+    try {
+
+      const response =
+        await fetch(
+          `${API}/api/student/certificates/${id}/pdf`,
+          {
+            headers:
+              authHeaders(token)
+          }
+        );
+
+      if (!response.ok) {
+
+        throw new Error(
+          "Unable to download certificate."
+        );
+      }
+
+      const blob =
+        await response.blob();
+
+      downloadBlob(
+        blob,
+        `${certificateNumber}.pdf`
+      );
+
+    } catch (error) {
+
+      setError(error.message);
+
+    }
+  }
+
+  return (
+    <div className="content">
+
+      {/* PROFILE */}
+
+      <section className="card">
+
+        <span className="eyebrow">
+          STUDENT PROFILE
+        </span>
+
+        <div className="student-profile">
+
+          <div className="large-avatar">
+            {user.fullName?.charAt(0)}
+          </div>
+
+          <div>
+
+            <h2>
+              {user.fullName}
+            </h2>
+
+            <p>
+              {user.email}
+            </p>
+
+            <span className="status active">
+              VERIFIED STUDENT
+            </span>
+
+          </div>
+
+        </div>
+
+      </section>
+
+      {error && (
+        <div className="error">
+          {error}
+        </div>
+      )}
+
+      {/* REQUESTS */}
+
+      <section className="card">
+
+        <div className="card-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              REQUEST TRACKING
+            </span>
+
+            <h3>
+              My Certificate Requests
+            </h3>
+
+            <p>
+              Track your certificate applications.
+            </p>
+
+          </div>
+
+          <strong>
+            {requests.length}
+          </strong>
+
+        </div>
+
+        {loading ? (
+
+          <div className="empty">
+            Loading requests...
+          </div>
+
+        ) : requests.length === 0 ? (
+
+          <div className="empty">
+
+            <div className="empty-icon">
+              ◇
+            </div>
+
+            <p>
+              No certificate requests yet.
+            </p>
+
+          </div>
+
+        ) : (
+
+          <div className="certificate-list">
+
+            {requests.map(
+              (request) => (
+
+                <div
+                  className="certificate-item"
+                  key={request.id}
+                >
+
+                  <div className="certificate-main">
+
+                    <div className="certificate-symbol">
+
+                      {request.status ===
+                        "COMPLETED"
+                        ? "✓"
+                        : request.status ===
+                          "REJECTED"
+                          ? "!"
+                          : "○"}
+
+                    </div>
+
+                    <div>
+
+                      <span className="certificate-number">
+                        REQUEST
+                      </span>
+
+                      <h3>
+                        {request.courseName}
+                      </h3>
+
+                      <p>
+                        {request.institutionName}
+                      </p>
+
+                      <small>
+                        Submitted{" "}
+                        {formatDate(
+                          request.createdAt
+                        )}
+                      </small>
+
+                      {request.issuerName && (
+                        <small>
+                          {" · "}
+                          Issuer:{" "}
+                          {request.issuerName}
+                        </small>
+                      )}
+
+                    </div>
+
+                  </div>
+
+                  <div className="certificate-actions">
+
+                    <span
+                      className={
+                        request.status ===
+                          "COMPLETED"
+                          ? "status active"
+                          : request.status ===
+                            "REJECTED"
+                            ? "status revoked"
+                            : "status pending"
+                      }
+                    >
+                      {request.status ===
+                        "PENDING_ISSUER"
+                        ? "AWAITING ISSUER"
+                        : request.status ===
+                          "PENDING_ADMIN"
+                          ? "AWAITING ADMIN"
+                          : request.status}
+                    </span>
+
+                    {request.certificateNumber && (
+
+                      <button
+                        className="small-button"
+                        onClick={() =>
+                          window.location.href =
+                            `/verify/${request.certificateNumber}`
+                        }
+                      >
+                        Verify
+                      </button>
+
+                    )}
+
+                  </div>
+
+                </div>
+
+              )
+            )}
+
+          </div>
+
+        )}
+
+      </section>
+
+      {/* CERTIFICATES */}
+
+      <section className="card">
+
+        <div className="card-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              DIGITAL CREDENTIALS
+            </span>
+
+            <h3>
+              My Certificates
+            </h3>
+
+            <p>
+              Approved certificates issued
+              to your account.
+            </p>
+
+          </div>
+
+          <strong>
+            {certificates.length}
+          </strong>
+
+        </div>
+
+        {loading ? (
+
+          <div className="empty">
+            Loading certificates...
+          </div>
+
+        ) : certificates.length === 0 ? (
+
+          <div className="empty">
+
+            <div className="empty-icon">
+              ◇
+            </div>
+
+            <p>
+              No certificates have been
+              issued to you yet.
+            </p>
+
+          </div>
+
+        ) : (
+
+          <div className="certificate-list">
+
+            {certificates.map(
+              (certificate) => (
+
+                <div
+                  className="certificate-item"
+                  key={certificate.id}
+                >
+
+                  <div className="certificate-main">
+
+                    <div className="certificate-symbol">
+
+                      {certificate.status ===
+                        "ACTIVE"
+                        ? "✓"
+                        : "!"}
+
+                    </div>
+
+                    <div>
+
+                      <span className="certificate-number">
+                        {certificate.certificateNumber}
+                      </span>
+
+                      <h3>
+                        {certificate.courseName}
+                      </h3>
+
+                      <p>
+                        {certificate.institutionName}
+                      </p>
+
+                      <small>
+                         Issued on{" "}
+                         {certificate.issueDate}
+                  </small>
+
+                   {certificate.status === "REVOKED" &&
+                     certificate.revocationReason && (
+                 <div className="revocation-reason">
+                  <strong>
+                    Revocation reason
+                  </strong>
+
+                  <span>
+                   {certificate.revocationReason}
+                  </span>
+                 </div>
+                )}
+
+                    </div>
+
+                  </div>
+
+                  <div className="certificate-actions">
+
+                    <span
+                      className={
+                        certificate.status ===
+                        "ACTIVE"
+                          ? "status active"
+                          : "status revoked"
+                      }
+                    >
+                      {certificate.status}
+                    </span>
+
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        downloadPdf(
+                          certificate.id,
+                          certificate.certificateNumber
+                        )
+                      }
+                    >
+                      Download PDF
+                    </button>
+
+                    <button
+                      className="small-button"
+                      onClick={() =>
+                        window.location.href =
+                          `/verify/${certificate.certificateNumber}`
+                      }
+                    >
+                      Verify
+                    </button>
+
+                  </div>
+
+                </div>
+
+              )
+            )}
+
+          </div>
+
+        )}
+
+      </section>
+
+    </div>
+  );
+}
+
+/* =========================================================
+   ISSUER REQUESTS
+   ========================================================= */
+
+function IssuerRequests({ token }) {
+
+  const [requests, setRequests] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const [message, setMessage] =
+    useState("");
+
+  useEffect(() => {
+
+    let cancelled = false;
+
+    async function load() {
+
+      try {
+
+        const data =
+          await requestJson(
+            `${API}/api/certificate-requests/issuer`,
+            {
+              headers:
+                authHeaders(token)
+            }
+          );
+
+        if (!cancelled) {
+
+          setRequests(
+            Array.isArray(data)
+              ? data
+              : []
+          );
+
+        }
+
+      } catch (error) {
+
+        if (!cancelled) {
+          setError(error.message);
+        }
+
+      } finally {
+
+        if (!cancelled) {
+          setLoading(false);
+        }
+
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+
+  }, [token]);
+
+  async function acceptRequest(id) {
+
+    setError("");
+    setMessage("");
+
+    try {
+
+      await requestJson(
+        `${API}/api/certificate-requests/${id}/accept`,
+        {
+          method: "PATCH",
+          headers:
+            authHeaders(token)
+        }
+      );
+
+      setRequests((items) =>
+        items.filter(
+          (item) =>
+            item.id !== id
+        )
+      );
+
+      setMessage(
+        "Request accepted and sent to administrator."
+      );
+
+    } catch (error) {
+
+      setError(error.message);
+
+    }
+  }
+
+  return (
+    <div className="content">
+
+      <section className="card">
+
+        <div className="card-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              CENTRAL ISSUER
+            </span>
+
+            <h3>
+              Certificate Requests
+            </h3>
+
+            <p>
+              Requests from all institutions
+              appear here.
+            </p>
+
+          </div>
+
+          <strong>
+            {requests.length}
+          </strong>
+
+        </div>
+
+        {error && (
+          <div className="error">
+            {error}
+          </div>
+        )}
+
+        {message && (
+          <div className="success">
+            {message}
+          </div>
+        )}
+
+        {loading ? (
+
+          <div className="empty">
+            Loading requests...
+          </div>
+
+        ) : requests.length === 0 ? (
+
+          <div className="empty">
+
+            <div className="empty-icon">
+              ✓
+            </div>
+
+            <p>
+              No new certificate requests.
+            </p>
+
+          </div>
+
+        ) : (
+
+          <div className="certificate-list">
+
+            {requests.map(
+              (request) => (
+
+                <div
+                  className="certificate-item"
+                  key={request.id}
+                >
+
+                  <div className="certificate-main">
+
+                    <div className="certificate-symbol">
+                      ○
+                    </div>
+
+                    <div>
+
+                      <span className="certificate-number">
+                        NEW REQUEST
+                      </span>
+
+                      <h3>
+                        {request.courseName}
+                      </h3>
+
+                      <p>
+                        {request.studentName}
+                        {" · "}
+                        {request.institutionName}
+                      </p>
+
+                      {request.description && (
+                        <small>
+                          {request.description}
+                        </small>
+                      )}
+
+                      <small>
+                        Submitted{" "}
+                        {formatDate(
+                          request.createdAt
+                        )}
+                      </small>
+
+                    </div>
+
+                  </div>
+
+                  <div className="certificate-actions">
+
+                    <span className="status pending">
+                      AWAITING ISSUER
+                    </span>
+
+                    <button
+                      className="small-button"
+                      onClick={() =>
+                        acceptRequest(
+                          request.id
+                        )
+                      }
+                    >
+                      Accept & Prepare
+                    </button>
+
+                  </div>
+
+                </div>
+
+              )
+            )}
+
+          </div>
+
+        )}
+
+      </section>
+
+    </div>
+  );
+}
+
+/* =========================================================
+   ISSUER CERTIFICATES
+   ========================================================= */
+
+function IssuerCertificates({ token }) {
+
+  const [certificates, setCertificates] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  useEffect(() => {
+
+    let cancelled = false;
+
+    async function load() {
+
+      try {
+
+        const data =
+          await requestJson(
+            `${API}/api/certificates`,
+            {
+              headers:
+                authHeaders(token)
+            }
+          );
+
+        if (!cancelled) {
+
+          setCertificates(
+            Array.isArray(data)
+              ? data
+              : []
+          );
+
+        }
+
+      } catch (error) {
+
+        if (!cancelled) {
+          setError(error.message);
+        }
+
+      } finally {
+
+        if (!cancelled) {
+          setLoading(false);
+        }
+
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+
+  }, [token]);
+
+  async function downloadPdf(
+    id,
+    certificateNumber
+  ) {
+
+    try {
+
+      const response =
+        await fetch(
+          `${API}/api/certificates/${id}/pdf`,
+          {
+            headers:
+              authHeaders(token)
+          }
+        );
+
+      if (!response.ok) {
+
+        throw new Error(
+          "Unable to download certificate."
+        );
+      }
+
+      const blob =
+        await response.blob();
+
+      downloadBlob(
+        blob,
+        `${certificateNumber}.pdf`
+      );
+
+    } catch (error) {
+
+      setError(error.message);
+
+    }
+  }
+
+  async function revoke(id) {
+
+    const reason =
+      window.prompt(
+        "Enter the reason for revocation:"
+      );
+
+    if (!reason?.trim()) {
+      return;
+    }
+
+    setError("");
+
+    try {
+
+      const data =
+        await requestJson(
+          `${API}/api/certificates/${id}/revoke`,
+          {
+            method: "PATCH",
+
+            headers: {
+              ...authHeaders(token),
+              "Content-Type":
+                "application/json"
+            },
+
+            body: JSON.stringify({
+              reason: reason.trim()
+            })
+          }
+        );
+
+      setCertificates((items) =>
+        items.map((item) =>
+          item.id === id
+            ? data
+            : item
+        )
+      );
+
+    } catch (error) {
+
+      setError(error.message);
+
+    }
+  }
+
+  return (
+    <div className="content">
+
+      <section className="card">
+
+        <div className="card-heading">
+
+          <div>
+
+            <span className="eyebrow">
+              CERTIFICATE MANAGEMENT
+            </span>
+
+            <h3>
+              Issued Certificates
+            </h3>
+
+            <p>
+              Manage certificates from every
+              institution.
+            </p>
+
+          </div>
+
+          <strong>
+            {certificates.length}
+          </strong>
+
+        </div>
+
+        {error && (
+          <div className="error">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+
+          <div className="empty">
+            Loading certificates...
+          </div>
+
+        ) : certificates.length === 0 ? (
+
+          <div className="empty">
+            No certificates have been issued.
+          </div>
+
+        ) : (
+
+          <div className="certificate-list">
+
+            {certificates.map(
+              (certificate) => (
+
+                <div
+                  className="certificate-item"
+                  key={certificate.id}
+                >
+
+                  <div className="certificate-main">
+
+                    <div className="certificate-symbol">
+                      {certificate.status ===
+                        "ACTIVE"
+                        ? "✓"
+                        : "!"}
+                    </div>
+
+                    <div>
+
+                      <span className="certificate-number">
+                        {certificate.certificateNumber}
+                      </span>
+
+                      <h3>
+                        {certificate.courseName}
+                      </h3>
+
+                      <p>
+                        {certificate.studentName}
+                        {" · "}
+                        {certificate.institutionName}
+                      </p>
+
+                      <small>
+                        Issued on{" "}
+                        {certificate.issueDate}
+                      </small>
+
+                    </div>
+
+                  </div>
+
+                  <div className="certificate-actions">
+
+                    <span
+                      className={
+                        certificate.status ===
+                        "ACTIVE"
+                          ? "status active"
+                          : "status revoked"
+                      }
+                    >
+                      {certificate.status}
+                    </span>
+
+                    <button
+                      className="small-button"
+                      onClick={() =>
+                        window.location.href =
+                          `/verify/${certificate.certificateNumber}`
+                      }
+                    >
+                      Verify
+                    </button>
+
+                    <button
+                      className="small-button"
+                      onClick={() =>
+                        downloadPdf(
+                          certificate.id,
+                          certificate.certificateNumber
+                        )
+                      }
+                    >
+                      PDF
+                    </button>
+
+                    {certificate.status ===
+                      "ACTIVE" && (
+
+                      <button
+                        className="danger-button"
+                        onClick={() =>
+                          revoke(
+                            certificate.id
+                          )
+                        }
+                      >
+                        Revoke
+                      </button>
+
+                    )}
+
+                  </div>
+
+                </div>
+
+              )
+            )}
+
+          </div>
+
+        )}
+
+      </section>
+
+    </div>
+  );
+}
+
+/* =========================================================
+   ADMIN INSTITUTIONS
+   ========================================================= */
+
+function AdminInstitutions({ token }) {
 
   const [institutions, setInstitutions] =
     useState([]);
@@ -642,87 +2241,79 @@ function AdminPage({ token }) {
   const [loading, setLoading] =
     useState(true);
 
+  const [error, setError] =
+    useState("");
+
   const [message, setMessage] =
     useState("");
 
   useEffect(() => {
 
-    async function loadInstitutions() {
+    let cancelled = false;
+
+    async function load() {
 
       try {
 
-        const response =
-          await fetch(
+        const data =
+          await requestJson(
             `${API}/api/institutions`,
             {
-              headers: {
-                Authorization:
-                  `Bearer ${token}`
-              }
+              headers:
+                authHeaders(token)
             }
           );
 
-        const data =
-          await response.json();
+        if (!cancelled) {
 
-        if (!response.ok) {
-
-          throw new Error(
-            data.message ||
-            "Unable to load institutions."
+          setInstitutions(
+            Array.isArray(data)
+              ? data
+              : []
           );
-        }
 
-        setInstitutions(
-          Array.isArray(data)
-            ? data
-            : []
-        );
+        }
 
       } catch (error) {
 
-        setMessage(error.message);
+        if (!cancelled) {
+          setError(error.message);
+        }
 
       } finally {
 
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
 
       }
     }
 
-    loadInstitutions();
+    load();
+
+    return () => {
+      cancelled = true;
+    };
 
   }, [token]);
 
   async function activate(id) {
 
+    setError("");
     setMessage("");
 
     try {
 
-      const response =
-        await fetch(
+      const data =
+        await requestJson(
           `${API}/api/institutions/${id}/activate`,
           {
             method: "PATCH",
 
-            headers: {
-              Authorization:
-                `Bearer ${token}`
-            }
+            headers:
+              authHeaders(token)
           }
         );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-
-        throw new Error(
-          data.message ||
-          "Unable to activate institution."
-        );
-      }
 
       setInstitutions((items) =>
         items.map((item) =>
@@ -738,7 +2329,7 @@ function AdminPage({ token }) {
 
     } catch (error) {
 
-      setMessage(error.message);
+      setError(error.message);
 
     }
   }
@@ -761,24 +2352,26 @@ function AdminPage({ token }) {
             </h3>
 
             <p>
-              Manage registered certificate
-              issuing institutions.
+              Manage institutions registered
+              on SecureCert.
             </p>
 
           </div>
 
+          <strong>
+            {institutions.length}
+          </strong>
+
         </div>
 
+        {error && (
+          <div className="error">
+            {error}
+          </div>
+        )}
+
         {message && (
-          <div
-            className={
-              message.includes(
-                "successfully"
-              )
-                ? "success"
-                : "error"
-            }
-          >
+          <div className="success">
             {message}
           </div>
         )}
@@ -894,28 +2487,16 @@ function AdminPage({ token }) {
 }
 
 /* =========================================================
-   ISSUER
+   ADMIN APPROVALS
    ========================================================= */
 
-function IssuerPage({ token }) {
+function AdminApprovals({ token }) {
 
-  const [students, setStudents] =
+  const [requests, setRequests] =
     useState([]);
 
-  const [certificates, setCertificates] =
-    useState([]);
-
-  const [studentId, setStudentId] =
-    useState("");
-
-  const [courseName, setCourseName] =
-    useState("");
-
-  const [description, setDescription] =
-    useState("");
-
-  const [certificate, setCertificate] =
-    useState(null);
+  const [loading, setLoading] =
+    useState(true);
 
   const [error, setError] =
     useState("");
@@ -923,191 +2504,102 @@ function IssuerPage({ token }) {
   const [message, setMessage] =
     useState("");
 
-  const [loading, setLoading] =
-    useState(false);
-
-  const [studentsLoading, setStudentsLoading] =
-    useState(true);
-
-  const [certificatesLoading, setCertificatesLoading] =
-    useState(true);
-
   useEffect(() => {
 
-    async function loadStudents() {
+    let cancelled = false;
+
+    async function load() {
 
       try {
 
-        const response =
-          await fetch(
-            `${API}/api/issuer/students`,
+        const data =
+          await requestJson(
+            `${API}/api/certificate-requests/admin`,
             {
-              headers: {
-                Authorization:
-                  `Bearer ${token}`
-              }
+              headers:
+                authHeaders(token)
             }
           );
 
-        const data =
-          await response.json();
+        if (!cancelled) {
 
-        if (!response.ok) {
-
-          throw new Error(
-            data.message ||
-            "Unable to load students."
+          setRequests(
+            Array.isArray(data)
+              ? data
+              : []
           );
-        }
 
-        setStudents(
-          Array.isArray(data)
-            ? data
-            : []
-        );
-
-        if (data.length > 0) {
-          setStudentId(data[0].id);
         }
 
       } catch (error) {
 
-        setError(error.message);
-
-      } finally {
-
-        setStudentsLoading(false);
-
-      }
-    }
-
-    async function loadCertificates() {
-
-      try {
-
-        const response =
-          await fetch(
-            `${API}/api/certificates`,
-            {
-              headers: {
-                Authorization:
-                  `Bearer ${token}`
-              }
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-
-          throw new Error(
-            data.message ||
-            "Unable to load certificates."
-          );
+        if (!cancelled) {
+          setError(error.message);
         }
 
-        setCertificates(
-          Array.isArray(data)
-            ? data
-            : []
-        );
-
-      } catch (error) {
-
-        setError(error.message);
-
       } finally {
 
-        setCertificatesLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
 
       }
     }
 
-    loadStudents();
-    loadCertificates();
+    load();
+
+    return () => {
+      cancelled = true;
+    };
 
   }, [token]);
 
-  async function issue(event) {
+  async function approve(id) {
 
-    event.preventDefault();
-
-    setLoading(true);
     setError("");
     setMessage("");
-    setCertificate(null);
 
     try {
 
-      const response =
-        await fetch(
-          `${API}/api/certificates`,
+      const data =
+        await requestJson(
+          `${API}/api/certificate-requests/${id}/approve`,
           {
-            method: "POST",
+            method: "PATCH",
 
-            headers: {
-              Authorization:
-                `Bearer ${token}`,
-
-              "Content-Type":
-                "application/json"
-            },
-
-            body: JSON.stringify({
-              studentId,
-              courseName: courseName.trim(),
-              description: description.trim()
-            })
+            headers:
+              authHeaders(token)
           }
         );
 
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-
-        throw new Error(
-          data.message ||
-          "Unable to issue certificate."
-        );
-      }
-
-      setCertificate(data);
-
-      setCertificates((items) => [
-        data,
-        ...items
-      ]);
-
-      setCourseName("");
-      setDescription("");
+      setRequests((items) =>
+        items.filter(
+          (item) =>
+            item.id !== id
+        )
+      );
 
       setMessage(
-        "Certificate issued successfully."
+        data.certificateNumber
+          ? `Certificate ${data.certificateNumber} approved successfully.`
+          : "Certificate approved successfully."
       );
 
     } catch (error) {
 
       setError(error.message);
 
-    } finally {
-
-      setLoading(false);
-
     }
   }
 
-  async function revokeCertificate(
-    certificateId
-  ) {
+  async function reject(id) {
 
     const reason =
       window.prompt(
-        "Enter the reason for revocation:"
+        "Enter the reason for rejection:"
       );
 
-    if (!reason || !reason.trim()) {
+    if (!reason?.trim()) {
       return;
     }
 
@@ -1116,54 +2608,27 @@ function IssuerPage({ token }) {
 
     try {
 
-      const response =
-        await fetch(
-          `${API}/api/certificates/${certificateId}/revoke`,
-          {
-            method: "PATCH",
+      await requestJson(
+        `${API}/api/certificate-requests/${id}/reject?reason=${encodeURIComponent(
+          reason.trim()
+        )}`,
+        {
+          method: "PATCH",
 
-            headers: {
-              Authorization:
-                `Bearer ${token}`,
+          headers:
+            authHeaders(token)
+        }
+      );
 
-              "Content-Type":
-                "application/json"
-            },
-
-            body: JSON.stringify({
-              reason: reason.trim()
-            })
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-
-        throw new Error(
-          data.message ||
-          "Unable to revoke certificate."
-        );
-      }
-
-      setCertificates((items) =>
-        items.map((item) =>
-          item.id === data.id
-            ? data
-            : item
+      setRequests((items) =>
+        items.filter(
+          (item) =>
+            item.id !== id
         )
       );
 
-      if (
-        certificate &&
-        certificate.id === data.id
-      ) {
-        setCertificate(data);
-      }
-
       setMessage(
-        "Certificate revoked successfully."
+        "Certificate request rejected."
       );
 
     } catch (error) {
@@ -1171,399 +2636,117 @@ function IssuerPage({ token }) {
       setError(error.message);
 
     }
-  }
-
-  async function downloadPdf(
-    certificateId,
-    certificateNumber
-  ) {
-
-    try {
-
-      const response =
-        await fetch(
-          `${API}/api/certificates/${certificateId}/pdf`,
-          {
-            headers: {
-              Authorization:
-                `Bearer ${token}`
-            }
-          }
-        );
-
-      if (!response.ok) {
-
-        throw new Error(
-          "Unable to generate PDF."
-        );
-      }
-
-      const blob =
-        await response.blob();
-
-      const url =
-        URL.createObjectURL(blob);
-
-      const link =
-        document.createElement("a");
-
-      link.href = url;
-
-      link.download =
-        `${certificateNumber}.pdf`;
-
-      document.body.appendChild(link);
-
-      link.click();
-
-      link.remove();
-
-      URL.revokeObjectURL(url);
-
-    } catch (error) {
-
-      setError(error.message);
-
-    }
-  }
-
-  function verifyCertificate(
-    certificateNumber
-  ) {
-
-    window.location.href =
-      `/verify/${certificateNumber}`;
   }
 
   return (
     <div className="content">
 
-      <div className="two-column">
-
-        {/* ISSUE FORM */}
-
-        <section className="card">
-
-          <span className="eyebrow">
-            CERTIFICATE ISSUANCE
-          </span>
-
-          <h3>
-            Create certificate
-          </h3>
-
-          <p>
-            Issue a digitally signed
-            certificate to an active student.
-          </p>
-
-          <form
-            className="form"
-            onSubmit={issue}
-          >
-
-            <label>
-              Student
-            </label>
-
-            {studentsLoading ? (
-
-              <div className="loading-field">
-                Loading students...
-              </div>
-
-            ) : students.length === 0 ? (
-
-              <div className="error">
-                No active students available.
-              </div>
-
-            ) : (
-
-              <select
-                value={studentId}
-                onChange={(event) =>
-                  setStudentId(
-                    event.target.value
-                  )
-                }
-                required
-              >
-
-                {students.map(
-                  (student) => (
-
-                    <option
-                      key={student.id}
-                      value={student.id}
-                    >
-                      {student.fullName}
-                      {" — "}
-                      {student.email}
-                    </option>
-
-                  )
-                )}
-
-              </select>
-
-            )}
-
-            <label>
-              Course
-            </label>
-
-            <input
-              type="text"
-              placeholder="Java Full Stack Development"
-              value={courseName}
-              onChange={(event) =>
-                setCourseName(
-                  event.target.value
-                )
-              }
-              required
-            />
-
-            <label>
-              Description
-            </label>
-
-            <textarea
-              rows="5"
-              placeholder="Successfully completed the program."
-              value={description}
-              onChange={(event) =>
-                setDescription(
-                  event.target.value
-                )
-              }
-            />
-
-            {error && (
-              <div className="error">
-                {error}
-              </div>
-            )}
-
-            {message && (
-              <div className="success">
-                {message}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="primary"
-              disabled={
-                loading ||
-                studentsLoading ||
-                students.length === 0
-              }
-            >
-              {loading
-                ? "Signing certificate..."
-                : "Issue Certificate"}
-            </button>
-
-          </form>
-
-        </section>
-
-        {/* LATEST RESULT */}
-
-        <section className="card">
-
-          <span className="eyebrow">
-            LATEST RESULT
-          </span>
-
-          {certificate ? (
-
-            <>
-
-              <div className="success-icon">
-                ✓
-              </div>
-
-              <h3>
-                Certificate issued
-              </h3>
-
-              <div className="certificate-number">
-                {certificate.certificateNumber}
-              </div>
-
-              <div className="details">
-
-                <Detail
-                  label="Student"
-                  value={
-                    certificate.studentName
-                  }
-                />
-
-                <Detail
-                  label="Course"
-                  value={
-                    certificate.courseName
-                  }
-                />
-
-                <Detail
-                  label="Institution"
-                  value={
-                    certificate.institutionName
-                  }
-                />
-
-                <Detail
-                  label="Status"
-                  value={
-                    certificate.status
-                  }
-                />
-
-                <Detail
-                  label="Signature"
-                  value={
-                    certificate.signatureAlgorithm
-                  }
-                />
-
-              </div>
-
-              <div className="button-row">
-
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    downloadPdf(
-                      certificate.id,
-                      certificate.certificateNumber
-                    )
-                  }
-                >
-                  Download PDF
-                </button>
-
-                <button
-                  className="small-button"
-                  onClick={() =>
-                    verifyCertificate(
-                      certificate.certificateNumber
-                    )
-                  }
-                >
-                  Verify
-                </button>
-
-              </div>
-
-            </>
-
-          ) : (
-
-            <div className="empty">
-
-              <div className="empty-icon">
-                ◇
-              </div>
-
-              <p>
-                Your latest signed certificate
-                will appear here.
-              </p>
-
-            </div>
-
-          )}
-
-        </section>
-
-      </div>
-
-      {/* CERTIFICATE MANAGEMENT */}
-
-      <section className="card certificate-management">
+      <section className="card">
 
         <div className="card-heading">
 
           <div>
 
             <span className="eyebrow">
-              CERTIFICATE MANAGEMENT
+              FINAL APPROVAL
             </span>
 
             <h3>
-              Issued Certificates
+              Certificate Approvals
             </h3>
 
             <p>
-              View, verify, download and revoke
-              certificates issued by your institution.
+              Review certificate requests
+              prepared by the central issuer.
             </p>
 
           </div>
 
           <strong>
-            {certificates.length}
+            {requests.length}
           </strong>
 
         </div>
 
-        {certificatesLoading ? (
+        {error && (
+          <div className="error">
+            {error}
+          </div>
+        )}
+
+        {message && (
+          <div className="success">
+            {message}
+          </div>
+        )}
+
+        {loading ? (
 
           <div className="empty">
-            Loading certificates...
+            Loading approval requests...
           </div>
 
-        ) : certificates.length === 0 ? (
+        ) : requests.length === 0 ? (
 
           <div className="empty">
-            No certificates have been issued yet.
+
+            <div className="empty-icon">
+              ✓
+            </div>
+
+            <p>
+              No certificate requests are
+              waiting for approval.
+            </p>
+
           </div>
 
         ) : (
 
           <div className="certificate-list">
 
-            {certificates.map(
-              (item) => (
+            {requests.map(
+              (request) => (
 
                 <div
                   className="certificate-item"
-                  key={item.id}
+                  key={request.id}
                 >
 
                   <div className="certificate-main">
 
                     <div className="certificate-symbol">
-                      {item.status === "ACTIVE"
-                        ? "✓"
-                        : "!"}
+                      !
                     </div>
 
                     <div>
 
                       <span className="certificate-number">
-                        {item.certificateNumber}
+                        PENDING ADMIN
                       </span>
 
                       <h3>
-                        {item.courseName}
+                        {request.courseName}
                       </h3>
 
                       <p>
-                        {item.studentName}
+                        {request.studentName}
                         {" · "}
-                        {item.institutionName}
+                        {request.institutionName}
                       </p>
 
                       <small>
-                        Issued on{" "}
-                        {item.issueDate}
+                        Issuer:{" "}
+                        {request.issuerName ||
+                          "Not assigned"}
                       </small>
+
+                      {request.description && (
+                        <small>
+                          {" · "}
+                          {request.description}
+                        </small>
+                      )}
 
                     </div>
 
@@ -1571,53 +2754,31 @@ function IssuerPage({ token }) {
 
                   <div className="certificate-actions">
 
-                    <span
-                      className={
-                        item.status === "ACTIVE"
-                          ? "status active"
-                          : "status revoked"
-                      }
-                    >
-                      {item.status}
+                    <span className="status pending">
+                      PENDING ADMIN
                     </span>
 
                     <button
                       className="small-button"
                       onClick={() =>
-                        downloadPdf(
-                          item.id,
-                          item.certificateNumber
+                        approve(
+                          request.id
                         )
                       }
                     >
-                      PDF
+                      Approve
                     </button>
 
                     <button
-                      className="small-button"
+                      className="danger-button"
                       onClick={() =>
-                        verifyCertificate(
-                          item.certificateNumber
+                        reject(
+                          request.id
                         )
                       }
                     >
-                      Verify
+                      Reject
                     </button>
-
-                    {item.status === "ACTIVE" && (
-
-                      <button
-                        className="danger-button"
-                        onClick={() =>
-                          revokeCertificate(
-                            item.id
-                          )
-                        }
-                      >
-                        Revoke
-                      </button>
-
-                    )}
 
                   </div>
 
@@ -1637,317 +2798,6 @@ function IssuerPage({ token }) {
 }
 
 /* =========================================================
-   STUDENT
-   ========================================================= */
-
-function StudentPage({
-  user,
-  token
-}) {
-
-  const [certificates, setCertificates] =
-    useState([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [error, setError] =
-    useState("");
-
-  useEffect(() => {
-
-    async function loadCertificates() {
-
-      try {
-
-        const response =
-          await fetch(
-            `${API}/api/student/certificates`,
-            {
-              headers: {
-                Authorization:
-                  `Bearer ${token}`
-              }
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-
-          throw new Error(
-            data.message ||
-            "Unable to load certificates."
-          );
-        }
-
-        setCertificates(
-          Array.isArray(data)
-            ? data
-            : []
-        );
-
-      } catch (error) {
-
-        setError(error.message);
-
-      } finally {
-
-        setLoading(false);
-
-      }
-    }
-
-    loadCertificates();
-
-  }, [token]);
-
-  async function downloadPdf(
-    certificateId,
-    certificateNumber
-  ) {
-
-    try {
-
-      const response =
-        await fetch(
-          `${API}/api/student/certificates/${certificateId}/pdf`,
-          {
-            headers: {
-              Authorization:
-                `Bearer ${token}`
-            }
-          }
-        );
-
-      if (!response.ok) {
-
-        throw new Error(
-          "Unable to download certificate."
-        );
-      }
-
-      const blob =
-        await response.blob();
-
-      const url =
-        URL.createObjectURL(blob);
-
-      const link =
-        document.createElement("a");
-
-      link.href = url;
-
-      link.download =
-        `${certificateNumber}.pdf`;
-
-      document.body.appendChild(link);
-
-      link.click();
-
-      link.remove();
-
-      URL.revokeObjectURL(url);
-
-    } catch (error) {
-
-      setError(error.message);
-
-    }
-  }
-
-  return (
-    <div className="content">
-
-      <section className="card">
-
-        <span className="eyebrow">
-          STUDENT PROFILE
-        </span>
-
-        <div className="student-profile">
-
-          <div className="large-avatar">
-            {user.fullName?.charAt(0)}
-          </div>
-
-          <div>
-
-            <h2>
-              {user.fullName}
-            </h2>
-
-            <p>
-              {user.email}
-            </p>
-
-            <span className="status active">
-              VERIFIED STUDENT
-            </span>
-
-          </div>
-
-        </div>
-
-      </section>
-
-      <section className="card">
-
-        <div className="card-heading">
-
-          <div>
-
-            <span className="eyebrow">
-              DIGITAL CREDENTIALS
-            </span>
-
-            <h3>
-              My Certificates
-            </h3>
-
-            <p>
-              Certificates issued to your
-              verified student account.
-            </p>
-
-          </div>
-
-          <strong>
-            {certificates.length}
-          </strong>
-
-        </div>
-
-        {loading && (
-          <div className="empty">
-            Loading certificates...
-          </div>
-        )}
-
-        {error && (
-          <div className="error">
-            {error}
-          </div>
-        )}
-
-        {!loading &&
-          !error &&
-          certificates.length === 0 && (
-
-            <div className="empty">
-
-              <div className="empty-icon">
-                ◇
-              </div>
-
-              <p>
-                No certificates have been
-                issued to you yet.
-              </p>
-
-            </div>
-
-          )}
-
-        {!loading &&
-          certificates.length > 0 && (
-
-            <div className="certificate-list">
-
-              {certificates.map(
-                (certificate) => (
-
-                  <div
-                    className="certificate-item"
-                    key={certificate.id}
-                  >
-
-                    <div className="certificate-main">
-
-                      <div className="certificate-symbol">
-                        {certificate.status ===
-                        "ACTIVE"
-                          ? "✓"
-                          : "!"}
-                      </div>
-
-                      <div>
-
-                        <span className="certificate-number">
-                          {certificate.certificateNumber}
-                        </span>
-
-                        <h3>
-                          {certificate.courseName}
-                        </h3>
-
-                        <p>
-                          {certificate.institutionName}
-                        </p>
-
-                        <small>
-                          Issued on{" "}
-                          {certificate.issueDate}
-                        </small>
-
-                      </div>
-
-                    </div>
-
-                    <div className="certificate-actions">
-
-                      <span
-                        className={
-                          certificate.status ===
-                          "ACTIVE"
-                            ? "status active"
-                            : "status revoked"
-                        }
-                      >
-                        {certificate.status}
-                      </span>
-
-                      <button
-                        className="secondary"
-                        onClick={() =>
-                          downloadPdf(
-                            certificate.id,
-                            certificate.certificateNumber
-                          )
-                        }
-                      >
-                        Download PDF
-                      </button>
-
-                      <button
-                        className="small-button"
-                        onClick={() =>
-                          window.location.href =
-                            `/verify/${certificate.certificateNumber}`
-                        }
-                      >
-                        Verify
-                      </button>
-
-                    </div>
-
-                  </div>
-
-                )
-              )}
-
-            </div>
-
-          )}
-
-      </section>
-
-    </div>
-  );
-}
-
-/* =========================================================
    PUBLIC VERIFICATION
    ========================================================= */
 
@@ -1955,7 +2805,6 @@ function VerifyPage({
   initialNumber,
   onBack
 }) {
-
   const [number, setNumber] =
     useState(initialNumber);
 
@@ -1972,32 +2821,18 @@ function VerifyPage({
 
     event.preventDefault();
 
-    setLoading(true);
     setError("");
     setResult(null);
+    setLoading(true);
 
     try {
 
-      const cleanNumber =
-        number.trim();
-
-      const response =
-        await fetch(
+      const data =
+        await requestJson(
           `${API}/api/public/certificates/${encodeURIComponent(
-            cleanNumber
+            number.trim()
           )}/verify`
         );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-
-        throw new Error(
-          data.message ||
-          "Certificate not found."
-        );
-      }
 
       setResult(data);
 
@@ -2052,9 +2887,8 @@ function VerifyPage({
         </h1>
 
         <p>
-          Enter a certificate number to
-          verify its authenticity and
-          current status.
+          Verify certificate authenticity,
+          integrity and current status.
         </p>
 
         <form
@@ -2064,12 +2898,12 @@ function VerifyPage({
 
           <input
             value={number}
+            placeholder="SC-2026-000001"
             onChange={(event) =>
               setNumber(
                 event.target.value
               )
             }
-            placeholder="SC-2026-000001"
             required
           />
 
@@ -2112,7 +2946,8 @@ function VerifyPage({
                 <span>
                   {valid
                     ? "CERTIFICATE AUTHENTIC"
-                    : result.status === "REVOKED"
+                    : result.status ===
+                      "REVOKED"
                       ? "CERTIFICATE REVOKED"
                       : "CERTIFICATE INVALID"}
                 </span>
@@ -2163,8 +2998,8 @@ function VerifyPage({
                 label="Integrity"
                 value={
                   result.integrityValid
-                    ? "Verified"
-                    : "Failed"
+                    ? "✓ Verified"
+                    : "✗ Failed"
                 }
               />
 
@@ -2172,8 +3007,8 @@ function VerifyPage({
                 label="Digital Signature"
                 value={
                   result.signatureValid
-                    ? "Verified"
-                    : "Failed"
+                    ? "✓ Verified"
+                    : "✗ Failed"
                 }
               />
 
@@ -2186,9 +3021,29 @@ function VerifyPage({
 
             </div>
 
-            <div className="verification-message">
-              {result.message}
-            </div>
+            {result.status ===
+              "REVOKED" &&
+              result.revocationReason && (
+
+              <div className="verification-message">
+
+                <strong>
+                  Revocation reason
+                </strong>
+
+                <p>
+                  {result.revocationReason}
+                </p>
+
+              </div>
+
+            )}
+
+            {result.message && (
+              <div className="verification-message">
+                {result.message}
+              </div>
+            )}
 
           </section>
 
@@ -2201,7 +3056,7 @@ function VerifyPage({
 }
 
 /* =========================================================
-   SHARED DETAIL
+   DETAIL
    ========================================================= */
 
 function Detail({
@@ -2216,7 +3071,7 @@ function Detail({
       </span>
 
       <strong>
-        {value}
+        {value || "—"}
       </strong>
 
     </div>

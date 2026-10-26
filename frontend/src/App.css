@@ -1015,3 +1015,24 @@ select:focus {
   background: #f8fafc;
   font-size: 12px;
 }
+.revocation-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff5f5;
+  border: 1px solid #fecaca;
+}
+
+.revocation-reason strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.revocation-reason span {
+  font-size: 13px;
+  line-height: 1.5;
+}

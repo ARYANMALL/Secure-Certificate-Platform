@@ -25,447 +25,590 @@ import java.util.UUID;
 @Service
 public class CertificateService {
 
-    private static final String CERTIFICATE_NUMBER_PREFIX = "SC";
+        private static final String CERTIFICATE_NUMBER_PREFIX = "SC";
 
-    private final CertificateRepository certificateRepository;
-    private final UserRepository userRepository;
-    private final CertificateCanonicalizer canonicalizer;
-    private final CertificateSigningService signingService;
+        private final CertificateRepository certificateRepository;
 
-    public CertificateService(
-            CertificateRepository certificateRepository,
-            UserRepository userRepository,
-            CertificateCanonicalizer canonicalizer,
-            CertificateSigningService signingService) {
+        private final UserRepository userRepository;
 
-        this.certificateRepository = certificateRepository;
-        this.userRepository = userRepository;
-        this.canonicalizer = canonicalizer;
-        this.signingService = signingService;
-    }
+        private final CertificateCanonicalizer canonicalizer;
 
-    /**
-     * Issue a new digitally signed certificate.
-     *
-     * Only an ISSUER can perform this operation.
-     */
-    @PreAuthorize("hasRole('ISSUER')")
-    @Transactional
-    public CertificateResponse issueCertificate(
-            UUID issuerId,
-            CreateCertificateRequest request) {
+        private final CertificateSigningService signingService;
 
-        /*
-         * 1. Find the issuer.
-         */
-        User issuer = userRepository
-                .findById(issuerId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Issuer not found: "
-                                + issuerId));
+        public CertificateService(
+                        CertificateRepository certificateRepository,
+                        UserRepository userRepository,
+                        CertificateCanonicalizer canonicalizer,
+                        CertificateSigningService signingService) {
 
-        /*
-         * 2. Make sure this user really is an ISSUER.
-         */
-        if (issuer.getRole() != UserRole.ISSUER) {
+                this.certificateRepository = certificateRepository;
 
-            throw new BusinessRuleException(
-                    "Only issuer accounts can issue certificates");
+                this.userRepository = userRepository;
+
+                this.canonicalizer = canonicalizer;
+
+                this.signingService = signingService;
         }
 
         /*
-         * 3. Suspended issuers cannot issue certificates.
-         */
-        if (issuer.getStatus() != UserStatus.ACTIVE) {
-
-            throw new BusinessRuleException(
-                    "Suspended issuers cannot issue certificates");
-        }
-
-        /*
-         * 4. Get the institution belonging to the issuer.
-         */
-        Institution institution = issuer.getInstitution();
-
-        if (institution == null) {
-
-            throw new BusinessRuleException(
-                    "Issuer is not associated with an institution");
-        }
-
-        /*
-         * 5. Institution must be active.
-         */
-        if (institution.getStatus() != InstitutionStatus.ACTIVE) {
-
-            throw new BusinessRuleException(
-                    "Certificates cannot be issued by "
-                            + "an inactive institution");
-        }
-
-        /*
-         * 6. Find the student.
-         */
-        User student = userRepository
-                .findById(request.studentId())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Student not found: "
-                                + request.studentId()));
-
-        /*
-         * 7. The certificate recipient must
-         * actually be a STUDENT.
-         */
-        if (student.getRole() != UserRole.STUDENT) {
-
-            throw new BusinessRuleException(
-                    "Certificate recipient must be a student");
-        }
-
-        /*
-         * 8. Suspended students cannot receive
-         * new certificates.
-         */
-        if (student.getStatus() != UserStatus.ACTIVE) {
-
-            throw new BusinessRuleException(
-                    "Suspended students cannot receive certificates");
-        }
-
-        /*
-         * 9. Clean user input.
-         */
-        String courseName = request.courseName().trim();
-
-        String description = normalizeDescription(
-                request.description());
-
-        /*
-         * 10. Certificate issue date.
-         */
-        LocalDate issueDate = LocalDate.now(ZoneOffset.UTC);
-
-        /*
-         * 11. Generate unique certificate number.
+         * =========================================================
+         * DIRECT ISSUANCE
+         * =========================================================
          *
-         * Example:
-         * SC-2026-000001
+         * Existing issuer endpoint.
+         *
+         * An active issuer can issue certificates
+         * for students from ANY active institution.
          */
-        long sequence = certificateRepository
-                .nextCertificateSequence();
+        @PreAuthorize("hasRole('ISSUER')")
+        @Transactional
+        public CertificateResponse issueCertificate(
+                        UUID issuerId,
+                        CreateCertificateRequest request) {
 
-        String certificateNumber = String.format(
-                Locale.ROOT,
-                "%s-%d-%06d",
-                CERTIFICATE_NUMBER_PREFIX,
-                issueDate.getYear(),
-                sequence);
+                Certificate certificate = createCertificate(
+                                issuerId,
+                                request.studentId(),
+                                request.courseName(),
+                                request.description());
+
+                return toResponse(certificate);
+        }
 
         /*
-         * 12. Create the exact canonical data
-         * that will be signed.
+         * =========================================================
+         * ADMIN APPROVED ISSUANCE
+         * =========================================================
+         *
+         * Called by CertificateRequestService after
+         * the administrator approves a request.
          */
-        String canonicalData = canonicalizer.canonicalize(
+        @PreAuthorize("hasRole('ADMIN')")
+        @Transactional
+        public Certificate issueApprovedRequest(
+                        UUID issuerId,
+                        UUID studentId,
+                        String courseName,
+                        String description) {
 
-                certificateNumber,
-
-                student.getId(),
-                student.getFullName(),
-
-                issuer.getId(),
-                issuer.getFullName(),
-
-                institution.getId(),
-                institution.getName(),
-
-                courseName,
-                description,
-                issueDate);
+                return createCertificate(
+                                issuerId,
+                                studentId,
+                                courseName,
+                                description);
+        }
 
         /*
-         * 13. Calculate SHA-256 hash.
+         * =========================================================
+         * CREATE CERTIFICATE
+         * =========================================================
+         *
+         * IMPORTANT ARCHITECTURE:
+         *
+         * issuer = Amit
+         *
+         * institution = student's institution
+         *
+         * Therefore:
+         *
+         * Amit + DIT student
+         * ↓
+         * DIT certificate
+         *
+         * Amit + Tech Institute student
+         * ↓
+         * Tech Institute certificate
          */
-        String certificateHash = signingService.calculateSha256(
-                canonicalData);
-
-        /*
-         * 14. Create RSA digital signature.
-         */
-        String digitalSignature = signingService.sign(
-                canonicalData);
-
-        /*
-         * 15. Create certificate entity.
-         */
-        Certificate certificate = new Certificate(
-
-                certificateNumber,
-
-                student,
-                issuer,
-                institution,
+        private Certificate createCertificate(
+                        UUID issuerId,
+                        UUID studentId,
+                        String courseNameInput,
+                        String descriptionInput) {
 
                 /*
-                 * Historical snapshots.
+                 * -----------------------------------------------------
+                 * 1. FIND ISSUER
+                 * -----------------------------------------------------
                  */
-                student.getFullName(),
-                issuer.getFullName(),
-                institution.getName(),
+                User issuer = userRepository
+                                .findById(issuerId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Issuer not found: "
+                                                                + issuerId));
 
-                courseName,
-                description,
+                /*
+                 * -----------------------------------------------------
+                 * 2. VERIFY ISSUER ROLE
+                 * -----------------------------------------------------
+                 */
+                if (issuer.getRole() != UserRole.ISSUER) {
 
-                issueDate,
+                        throw new BusinessRuleException(
+                                        "Only issuer accounts can "
+                                                        + "issue certificates");
+                }
 
-                certificateHash,
-                digitalSignature,
+                /*
+                 * -----------------------------------------------------
+                 * 3. VERIFY ISSUER ACTIVE
+                 * -----------------------------------------------------
+                 */
+                if (issuer.getStatus() != UserStatus.ACTIVE) {
 
-                signingService
-                        .getSignatureAlgorithm());
+                        throw new BusinessRuleException(
+                                        "Suspended issuers cannot "
+                                                        + "issue certificates");
+                }
 
-        /*
-         * 16. Save certificate.
-         */
-        Certificate savedCertificate = certificateRepository.save(
-                certificate);
+                /*
+                 * -----------------------------------------------------
+                 * 4. FIND STUDENT
+                 * -----------------------------------------------------
+                 */
+                User student = userRepository
+                                .findById(studentId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Student not found: "
+                                                                + studentId));
 
-        /*
-         * 17. Return safe response.
-         */
-        return toResponse(
-                savedCertificate);
-    }
+                /*
+                 * -----------------------------------------------------
+                 * 5. VERIFY STUDENT ROLE
+                 * -----------------------------------------------------
+                 */
+                if (student.getRole() != UserRole.STUDENT) {
 
-    /**
-     * Get a certificate by ID.
-     *
-     * An issuer can only access certificates
-     * belonging to their own institution.
-     */
-    @PreAuthorize("hasRole('ISSUER')")
-    @Transactional(readOnly = true)
-    public CertificateResponse findById(
-            UUID certificateId,
-            UUID issuerId) {
+                        throw new BusinessRuleException(
+                                        "Certificate recipient must "
+                                                        + "be a student");
+                }
 
-        Certificate certificate = certificateRepository
-                .findById(certificateId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Certificate not found: "
-                                + certificateId));
+                /*
+                 * -----------------------------------------------------
+                 * 6. VERIFY STUDENT ACTIVE
+                 * -----------------------------------------------------
+                 */
+                if (student.getStatus() != UserStatus.ACTIVE) {
 
-        User issuer = userRepository
-                .findById(issuerId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Issuer not found: "
-                                + issuerId));
+                        throw new BusinessRuleException(
+                                        "Suspended students cannot "
+                                                        + "receive certificates");
+                }
 
-        ensureIssuerOwnsCertificate(
-                issuer,
-                certificate);
+                /*
+                 * -----------------------------------------------------
+                 * 7. GET STUDENT'S INSTITUTION
+                 * -----------------------------------------------------
+                 *
+                 * THIS IS THE IMPORTANT CHANGE.
+                 *
+                 * We do NOT use:
+                 *
+                 * issuer.getInstitution()
+                 *
+                 * because Amit is a central issuer.
+                 */
+                Institution institution = student.getInstitution();
 
-        return toResponse(certificate);
-    }
+                if (institution == null) {
 
-    /**
-     * Get all certificates belonging to
-     * the issuer's institution.
-     */
-    @PreAuthorize("hasRole('ISSUER')")
-    @Transactional(readOnly = true)
-    public List<CertificateResponse> findForIssuer(
-            UUID issuerId) {
+                        throw new BusinessRuleException(
+                                        "Student is not associated "
+                                                        + "with an institution");
+                }
 
-        User issuer = userRepository
-                .findById(issuerId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Issuer not found: "
-                                + issuerId));
+                /*
+                 * -----------------------------------------------------
+                 * 8. INSTITUTION MUST BE ACTIVE
+                 * -----------------------------------------------------
+                 */
+                if (institution.getStatus() != InstitutionStatus.ACTIVE) {
 
-        if (issuer.getInstitution() == null) {
+                        throw new BusinessRuleException(
+                                        "Certificates cannot be issued "
+                                                        + "for an inactive institution");
+                }
 
-            throw new BusinessRuleException(
-                    "Issuer is not associated with an institution");
+                /*
+                 * -----------------------------------------------------
+                 * 9. COURSE NAME
+                 * -----------------------------------------------------
+                 */
+                if (courseNameInput == null ||
+                                courseNameInput.isBlank()) {
+
+                        throw new BusinessRuleException(
+                                        "Course name is required");
+                }
+
+                String courseName = courseNameInput.trim();
+
+                /*
+                 * -----------------------------------------------------
+                 * 10. DESCRIPTION
+                 * -----------------------------------------------------
+                 */
+                String description = normalizeDescription(
+                                descriptionInput);
+
+                /*
+                 * -----------------------------------------------------
+                 * 11. ISSUE DATE
+                 * -----------------------------------------------------
+                 */
+                LocalDate issueDate = LocalDate.now(
+                                ZoneOffset.UTC);
+
+                /*
+                 * -----------------------------------------------------
+                 * 12. GENERATE CERTIFICATE NUMBER
+                 * -----------------------------------------------------
+                 *
+                 * Example:
+                 *
+                 * SC-2026-000007
+                 */
+                long sequence = certificateRepository
+                                .nextCertificateSequence();
+
+                String certificateNumber = String.format(
+                                Locale.ROOT,
+                                "%s-%d-%06d",
+                                CERTIFICATE_NUMBER_PREFIX,
+                                issueDate.getYear(),
+                                sequence);
+
+                /*
+                 * -----------------------------------------------------
+                 * 13. CANONICAL DATA
+                 * -----------------------------------------------------
+                 *
+                 * These exact values are used for both:
+                 *
+                 * SHA-256
+                 * RSA signature
+                 */
+                String canonicalData = canonicalizer.canonicalize(
+
+                                certificateNumber,
+
+                                /*
+                                 * Student
+                                 */
+                                student.getId(),
+                                student.getFullName(),
+
+                                /*
+                                 * Central issuer
+                                 */
+                                issuer.getId(),
+                                issuer.getFullName(),
+
+                                /*
+                                 * Student's institution
+                                 */
+                                institution.getId(),
+                                institution.getName(),
+
+                                /*
+                                 * Course
+                                 */
+                                courseName,
+
+                                description,
+
+                                /*
+                                 * Date
+                                 */
+                                issueDate);
+
+                /*
+                 * -----------------------------------------------------
+                 * 14. SHA-256
+                 * -----------------------------------------------------
+                 */
+                String certificateHash = signingService.calculateSha256(
+                                canonicalData);
+
+                /*
+                 * -----------------------------------------------------
+                 * 15. RSA DIGITAL SIGNATURE
+                 * -----------------------------------------------------
+                 */
+                String digitalSignature = signingService.sign(
+                                canonicalData);
+
+                /*
+                 * -----------------------------------------------------
+                 * 16. CREATE CERTIFICATE ENTITY
+                 * -----------------------------------------------------
+                 */
+                Certificate certificate = new Certificate(
+
+                                certificateNumber,
+
+                                /*
+                                 * Student
+                                 */
+                                student,
+
+                                /*
+                                 * Central issuer
+                                 */
+                                issuer,
+
+                                /*
+                                 * STUDENT'S institution
+                                 */
+                                institution,
+
+                                /*
+                                 * Historical snapshots
+                                 */
+                                student.getFullName(),
+
+                                issuer.getFullName(),
+
+                                institution.getName(),
+
+                                courseName,
+
+                                description,
+
+                                issueDate,
+
+                                certificateHash,
+
+                                digitalSignature,
+
+                                signingService
+                                                .getSignatureAlgorithm());
+
+                /*
+                 * -----------------------------------------------------
+                 * 17. SAVE
+                 * -----------------------------------------------------
+                 */
+                return certificateRepository.save(
+                                certificate);
         }
 
-        UUID institutionId = issuer.getInstitution().getId();
-
-        return certificateRepository
-                .findAll()
-                .stream()
-                .filter(certificate -> certificate
-                        .getInstitution()
-                        .getId()
-                        .equals(institutionId))
-                .map(this::toResponse)
-                .toList();
-    }
-
-    /**
-     * Revoke an existing certificate.
-     */
-    @PreAuthorize("hasRole('ISSUER')")
-    @Transactional
-    public CertificateResponse revokeCertificate(
-            UUID certificateId,
-            UUID issuerId,
-            String reason) {
-
-        Certificate certificate = certificateRepository
-                .findById(certificateId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Certificate not found: "
-                                + certificateId));
-
-        User issuer = userRepository
-                .findById(issuerId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Issuer not found: "
-                                + issuerId));
-
         /*
-         * Issuer can only revoke certificates
-         * belonging to their institution.
-         */
-        ensureIssuerOwnsCertificate(
-                issuer,
-                certificate);
-
-        /*
-         * Suspended issuers cannot revoke certificates.
-         */
-        if (issuer.getStatus() != UserStatus.ACTIVE) {
-
-            throw new BusinessRuleException(
-                    "Suspended issuers cannot revoke certificates");
-        }
-
-        /*
-         * Change:
+         * =========================================================
+         * FIND CERTIFICATE BY ID
+         * =========================================================
          *
-         * ACTIVE → REVOKED
+         * Central issuer can access certificates
+         * from every institution.
          */
-        certificate.revoke(reason);
+        @PreAuthorize("hasRole('ISSUER')")
+        @Transactional(readOnly = true)
+        public CertificateResponse findById(
+                        UUID certificateId,
+                        UUID issuerId) {
 
-        return toResponse(certificate);
-    }
+                Certificate certificate = certificateRepository
+                                .findById(certificateId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Certificate not found: "
+                                                                + certificateId));
 
-    /**
-     * Get the actual Certificate entity for PDF generation.
-     *
-     * This method is used internally by the PDF endpoint.
-     */
-    @PreAuthorize("hasRole('ISSUER')")
-    @Transactional(readOnly = true)
-    public Certificate getCertificateEntityForPdf(
-            UUID certificateId,
-            UUID issuerId) {
+                User issuer = userRepository
+                                .findById(issuerId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Issuer not found: "
+                                                                + issuerId));
 
-        Certificate certificate = certificateRepository
-                .findById(certificateId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Certificate not found: "
-                                + certificateId));
+                ensureActiveIssuer(issuer);
 
-        User issuer = userRepository
-                .findById(issuerId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Issuer not found: "
-                                + issuerId));
+                return toResponse(certificate);
+        }
 
         /*
-         * Reuse the same authorization rule.
+         * =========================================================
+         * GET ALL CERTIFICATES
+         * =========================================================
+         *
+         * Central issuer can see certificates
+         * from ALL institutions.
          */
-        ensureIssuerOwnsCertificate(
-                issuer,
-                certificate);
+        @PreAuthorize("hasRole('ISSUER')")
+        @Transactional(readOnly = true)
+        public List<CertificateResponse> findForIssuer(UUID issuerId) {
 
-        return certificate;
-    }
+                User issuer = userRepository
+                                .findById(issuerId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Issuer not found: "
+                                                                + issuerId));
 
-    /**
-     * Makes sure the issuer belongs to the
-     * same institution as the certificate.
-     */
-    private void ensureIssuerOwnsCertificate(
-            User issuer,
-            Certificate certificate) {
+                ensureActiveIssuer(issuer);
 
-        if (issuer.getInstitution() == null) {
-
-            throw new BusinessRuleException(
-                    "Issuer is not associated with an institution");
+                return certificateRepository
+                                .findAll()
+                                .stream()
+                                .map(this::toResponse)
+                                .toList();
         }
 
-        if (!issuer.getInstitution()
-                .getId()
-                .equals(
-                        certificate
-                                .getInstitution()
-                                .getId())) {
+        /*
+         * =========================================================
+         * REVOKE
+         * =========================================================
+         *
+         * Central issuer can revoke certificates
+         * from any institution.
+         */
+        @PreAuthorize("hasRole('ISSUER')")
+        @Transactional
+        public CertificateResponse revokeCertificate(
+                        UUID certificateId,
+                        UUID issuerId,
+                        String reason) {
 
-            throw new BusinessRuleException(
-                    "You are not authorized to access "
-                            + "this certificate");
+                Certificate certificate = certificateRepository
+                                .findById(certificateId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Certificate not found: "
+                                                                + certificateId));
+
+                User issuer = userRepository
+                                .findById(issuerId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Issuer not found: "
+                                                                + issuerId));
+
+                ensureActiveIssuer(issuer);
+
+                /*
+                 * NO institution comparison.
+                 *
+                 * Central issuer can revoke certificates
+                 * from any institution.
+                 */
+                certificate.revoke(reason);
+
+                return toResponse(certificate);
         }
-    }
 
-    /**
-     * Convert blank descriptions to null.
-     */
-    private String normalizeDescription(
-            String description) {
+        /*
+         * =========================================================
+         * PDF
+         * =========================================================
+         *
+         * Central issuer can download PDFs
+         * from any institution.
+         */
+        @PreAuthorize("hasRole('ISSUER')")
+        @Transactional(readOnly = true)
+        public Certificate getCertificateEntityForPdf(
+                        UUID certificateId,
+                        UUID issuerId) {
 
-        if (description == null) {
-            return null;
+                Certificate certificate = certificateRepository
+                                .findById(certificateId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Certificate not found: "
+                                                                + certificateId));
+
+                User issuer = userRepository
+                                .findById(issuerId)
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                "Issuer not found: "
+                                                                + issuerId));
+
+                ensureActiveIssuer(issuer);
+
+                return certificate;
         }
 
-        String trimmed = description.trim();
+        /*
+         * =========================================================
+         * ISSUER VALIDATION
+         * =========================================================
+         *
+         * Notice:
+         *
+         * There is NO institution check.
+         */
+        private void ensureActiveIssuer(
+                        User issuer) {
 
-        return trimmed.isEmpty()
-                ? null
-                : trimmed;
-    }
+                if (issuer.getRole() != UserRole.ISSUER) {
 
-    /**
-     * Convert entity into API response.
-     */
-    private CertificateResponse toResponse(
-            Certificate certificate) {
+                        throw new BusinessRuleException(
+                                        "Only issuer accounts can "
+                                                        + "manage certificates");
+                }
 
-        return new CertificateResponse(
+                if (issuer.getStatus() != UserStatus.ACTIVE) {
 
-                certificate.getId(),
+                        throw new BusinessRuleException(
+                                        "Suspended issuers cannot "
+                                                        + "manage certificates");
+                }
+        }
 
-                certificate.getCertificateNumber(),
+        /*
+         * =========================================================
+         * DESCRIPTION NORMALIZATION
+         * =========================================================
+         */
+        private String normalizeDescription(
+                        String description) {
 
-                certificate.getStudent().getId(),
-                certificate.getStudentName(),
+                if (description == null) {
+                        return null;
+                }
 
-                certificate.getIssuer().getId(),
-                certificate.getIssuerName(),
+                String trimmed = description.trim();
 
-                certificate.getInstitution().getId(),
-                certificate.getInstitutionName(),
+                return trimmed.isEmpty()
+                                ? null
+                                : trimmed;
+        }
 
-                certificate.getCourseName(),
+        /*
+         * =========================================================
+         * ENTITY → RESPONSE
+         * =========================================================
+         */
+        private CertificateResponse toResponse(
+                        Certificate certificate) {
 
-                certificate.getDescription(),
+                return new CertificateResponse(
 
-                certificate.getIssueDate(),
+                                certificate.getId(),
 
-                certificate.getStatus(),
+                                certificate.getCertificateNumber(),
 
-                certificate.getCertificateHash(),
+                                certificate.getStudent().getId(),
+                                certificate.getStudentName(),
 
-                certificate.getSignatureAlgorithm(),
+                                certificate.getIssuer().getId(),
+                                certificate.getIssuerName(),
 
-                certificate.getRevokedAt(),
+                                certificate.getInstitution().getId(),
+                                certificate.getInstitutionName(),
 
-                certificate.getRevocationReason(),
+                                certificate.getCourseName(),
 
-                certificate.getCreatedAt(),
+                                certificate.getDescription(),
 
-                certificate.getUpdatedAt());
-    }
+                                certificate.getIssueDate(),
+
+                                certificate.getStatus(),
+
+                                certificate.getCertificateHash(),
+
+                                certificate.getSignatureAlgorithm(),
+
+                                certificate.getRevokedAt(),
+
+                                certificate.getRevocationReason(),
+
+                                certificate.getCreatedAt(),
+
+                                certificate.getUpdatedAt());
+        }
 }

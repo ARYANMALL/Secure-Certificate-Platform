@@ -2,6 +2,7 @@ package com.securecertificate.api.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -21,7 +22,9 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
         /*
-         * Password hashing.
+         * =========================================================
+         * PASSWORD ENCODER
+         * =========================================================
          */
         @Bean
         public PasswordEncoder passwordEncoder() {
@@ -31,7 +34,9 @@ public class SecurityConfig {
         }
 
         /*
-         * Authentication manager used during login.
+         * =========================================================
+         * AUTHENTICATION MANAGER
+         * =========================================================
          */
         @Bean
         public AuthenticationManager authenticationManager(
@@ -48,15 +53,16 @@ public class SecurityConfig {
         }
 
         /*
-         * Converts the "role" claim from our JWT into
-         * Spring Security authorities.
-         *
-         * Example:
+         * =========================================================
+         * JWT AUTHORITY CONVERTER
+         * =========================================================
          *
          * JWT:
+         *
          * role = ISSUER
          *
-         * Spring Security:
+         * becomes:
+         *
          * ROLE_ISSUER
          */
         @Bean
@@ -76,7 +82,7 @@ public class SecurityConfig {
                                 authoritiesConverter);
 
                 /*
-                 * Our JWT subject contains the user UUID.
+                 * JWT subject contains user UUID.
                  */
                 converter.setPrincipalClaimName(
                                 "email");
@@ -85,7 +91,9 @@ public class SecurityConfig {
         }
 
         /*
-         * Main Spring Security configuration.
+         * =========================================================
+         * SECURITY FILTER CHAIN
+         * =========================================================
          */
         @Bean
         public SecurityFilterChain securityFilterChain(
@@ -96,37 +104,45 @@ public class SecurityConfig {
                 http
 
                                 /*
-                                 * Allow requests from our React frontend.
-                                 *
-                                 * The actual CORS rules are provided by
-                                 * CorsConfig.java.
+                                 * CORS
                                  */
                                 .cors(cors -> {
                                 })
 
                                 /*
-                                 * REST API is stateless, so CSRF protection
-                                 * based on browser sessions is disabled.
+                                 * REST API is stateless.
                                  */
                                 .csrf(csrf -> csrf.disable())
 
                                 /*
-                                 * No server-side login sessions.
+                                 * No server-side sessions.
                                  */
                                 .sessionManagement(session -> session.sessionCreationPolicy(
                                                 SessionCreationPolicy.STATELESS))
 
                                 /*
-                                 * Authorization rules.
+                                 * =================================================
+                                 * AUTHORIZATION RULES
+                                 * =================================================
                                  */
                                 .authorizeHttpRequests(authorize -> authorize
 
+                                                /*
+                                                 * ---------------------------------
+                                                 * PUBLIC ENDPOINTS
+                                                 * ---------------------------------
+                                                 */
                                                 .requestMatchers(
                                                                 "/api/health",
                                                                 "/api/auth/**",
                                                                 "/api/public/**")
                                                 .permitAll()
 
+                                                /*
+                                                 * ---------------------------------
+                                                 * ADMIN
+                                                 * ---------------------------------
+                                                 */
                                                 .requestMatchers(
                                                                 "/api/institutions/**")
                                                 .hasRole("ADMIN")
@@ -135,38 +151,135 @@ public class SecurityConfig {
                                                                 "/api/admin/**")
                                                 .hasRole("ADMIN")
 
+                                                /*
+                                                 * ---------------------------------
+                                                 * CERTIFICATE REQUESTS
+                                                 * ---------------------------------
+                                                 *
+                                                 * STUDENT:
+                                                 * Create request
+                                                 * View own requests
+                                                 */
+
+                                                .requestMatchers(
+                                                                HttpMethod.POST,
+                                                                "/api/certificate-requests")
+                                                .hasRole("STUDENT")
+
+                                                .requestMatchers(
+                                                                HttpMethod.GET,
+                                                                "/api/certificate-requests/my")
+                                                .hasRole("STUDENT")
+
+                                                /*
+                                                 * ISSUER:
+                                                 * View pending requests
+                                                 * Accept requests
+                                                 */
+
+                                                .requestMatchers(
+                                                                HttpMethod.GET,
+                                                                "/api/certificate-requests/issuer")
+                                                .hasRole("ISSUER")
+
+                                                .requestMatchers(
+                                                                HttpMethod.PATCH,
+                                                                "/api/certificate-requests/*/accept")
+                                                .hasRole("ISSUER")
+
+                                                /*
+                                                 * ADMIN:
+                                                 * View requests awaiting approval
+                                                 */
+
+                                                .requestMatchers(
+                                                                HttpMethod.GET,
+                                                                "/api/certificate-requests/admin")
+                                                .hasRole("ADMIN")
+
+                                                /*
+                                                 * ADMIN:
+                                                 * Approve request
+                                                 */
+
+                                                .requestMatchers(
+                                                                HttpMethod.PATCH,
+                                                                "/api/certificate-requests/*/approve")
+                                                .hasRole("ADMIN")
+
+                                                /*
+                                                 * ADMIN:
+                                                 * Reject request
+                                                 */
+
+                                                .requestMatchers(
+                                                                HttpMethod.PATCH,
+                                                                "/api/certificate-requests/*/reject")
+                                                .hasRole("ADMIN")
+
+                                                /*
+                                                 * ---------------------------------
+                                                 * DIRECT CERTIFICATE MANAGEMENT
+                                                 * ---------------------------------
+                                                 *
+                                                 * Existing issuer functionality.
+                                                 */
                                                 .requestMatchers(
                                                                 "/api/certificates/**")
                                                 .hasRole("ISSUER")
 
+                                                /*
+                                                 * ---------------------------------
+                                                 * STUDENT
+                                                 * ---------------------------------
+                                                 */
                                                 .requestMatchers(
                                                                 "/api/student/**")
                                                 .hasRole("STUDENT")
 
+                                                /*
+                                                 * ---------------------------------
+                                                 * ISSUER
+                                                 * ---------------------------------
+                                                 */
+                                                .requestMatchers(
+                                                                "/api/issuer/**")
+                                                .hasRole("ISSUER")
+
+                                                /*
+                                                 * ---------------------------------
+                                                 * CURRENT USER
+                                                 * ---------------------------------
+                                                 */
                                                 .requestMatchers(
                                                                 "/api/users/me")
                                                 .authenticated()
 
-                                                .requestMatchers(
-                                                                "/api/issuer/**")
-                                                .hasRole("ISSUER")
-                                                
+                                                /*
+                                                 * ---------------------------------
+                                                 * EVERYTHING ELSE
+                                                 * ---------------------------------
+                                                 *
+                                                 * Secure by default.
+                                                 */
                                                 .anyRequest()
                                                 .denyAll())
 
                                 /*
-                                 * JWT authentication.
+                                 * =================================================
+                                 * JWT RESOURCE SERVER
+                                 * =================================================
                                  */
                                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(
                                                 jwtAuthenticationConverter)))
 
                                 /*
-                                 * Disable browser login page.
+                                 * Disable browser login.
                                  */
                                 .formLogin(form -> form.disable())
 
                                 /*
-                                 * We use JWT instead of HTTP Basic.
+                                 * We use JWT, not HTTP Basic.
                                  */
                                 .httpBasic(basic -> basic.disable());
 
